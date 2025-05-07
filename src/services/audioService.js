@@ -54,9 +54,7 @@ class AudioService {
       if (voices.length > 0) {
         this.cachedVoices = voices;
         
-        // Log información sobre las voces disponibles
-        console.log(`AudioService: ${voices.length} voces disponibles`);
-        
+       
         // Buscar voces en español
         const spanishVoices = voices.filter(v => 
           v.lang.includes('es') || 

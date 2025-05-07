@@ -13,9 +13,12 @@ const TakeSurvey = () => {
   const { surveyId } = useParams();
   const navigate = useNavigate();
   
-  // Referencias para controlar el flujo de la conversación
-  const conversationActive = useRef(false);
+  // Referencias para controlar el flujo
+  const hasInitializedRef = useRef(false);
+  const hasPlayedWelcomeRef = useRef(false);
   const speakTimeoutRef = useRef(null);
+  const questionSpeakingRef = useRef(false);
+  const [surveyLoaded, setSurveyLoaded] = useState(false);
   
   // Estados
   const [survey, setSurvey] = useState(null);
@@ -23,47 +26,16 @@ const TakeSurvey = () => {
   const [error, setError] = useState(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [responses, setResponses] = useState([]);
+  const [respondentName, setRespondentName] = useState('Anónimo');
+  const [isListening, setIsListening] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [currentResponse, setCurrentResponse] = useState('');
-  const [isListening, setIsListening] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [conversationState, setConversationState] = useState('idle'); // idle, speaking, listening, processing
   const [conversationMessage, setConversationMessage] = useState('');
   const [micPermission, setMicPermission] = useState('unknown'); // 'unknown', 'granted', 'denied'
-  const [recognizedText, setRecognizedText] = useState('');
   const [status, setStatus] = useState('');
-  const [showPermissionDialog, setShowPermissionDialog] = useState(false);
-  
-  // Verificar permiso del micrófono
-  const requestMicrophonePermission = async () => {
-    setConversationState('requesting_permission');
-    setConversationMessage('Solicitando permiso para el micrófono...');
-    
-    try {
-      const permissionGranted = await audioService.requestMicrophonePermission();
-      
-      if (permissionGranted) {
-        setMicPermission('granted');
-        setShowPermissionDialog(false);
-        setConversationMessage('Permiso concedido. Iniciando encuesta por voz...');
-        
-        // Pequeño retraso para iniciar la conversación
-        setTimeout(() => {
-          startConversation();
-        }, 1000);
-      } else {
-        setMicPermission('denied');
-        setConversationState('permission_denied');
-        setConversationMessage('Se necesita acceso al micrófono para usar la función de voz');
-      }
-    } catch (error) {
-      console.error('Error al solicitar permiso:', error);
-      setMicPermission('denied');
-      setConversationState('error');
-      setConversationMessage('Error al solicitar permiso del micrófono');
-    }
-  };
   
   // Cargar la encuesta
   useEffect(() => {
@@ -102,7 +74,9 @@ const TakeSurvey = () => {
         clearTimeout(speakTimeoutRef.current);
       }
       audioService.stop();
-      conversationActive.current = false;
+      hasInitializedRef.current = false;
+      hasPlayedWelcomeRef.current = false;
+      questionSpeakingRef.current = false;
       
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
@@ -110,38 +84,54 @@ const TakeSurvey = () => {
     };
   }, [surveyId]);
   
-  // Iniciar la conversación una vez que la encuesta esté cargada
+  // Iniciar la encuesta una vez que está cargada y tenemos permiso del micrófono
   useEffect(() => {
-    if (survey && voiceEnabled && !conversationActive.current) {
-      // Primero verificar permiso de micrófono
-      if (micPermission === 'granted') {
-        startConversation();
-      } else if (micPermission === 'unknown') {
-        // Mostrar diálogo de permiso
-        setShowPermissionDialog(true);
+    // Solo iniciar si tenemos encuesta, voz habilitada, permiso, y no hemos iniciado antes
+    if (survey && voiceEnabled && micPermission === 'granted' && !hasInitializedRef.current && !loading) {
+      hasInitializedRef.current = true;
+      console.log("Iniciando encuesta por primera vez");
+      
+      // Dar un mensaje de bienvenida y luego la primera pregunta
+      if (survey.welcomeMessage && !hasPlayedWelcomeRef.current) {
+        hasPlayedWelcomeRef.current = true;
+        speakText(survey.welcomeMessage, () => {
+          // Solo reproducir la primera pregunta después de la bienvenida
+          if (currentQuestionIndex === 0) {
+            speakCurrentQuestion();
+          }
+        });
+      } else {
+        // Si no hay mensaje de bienvenida, ir directamente a la primera pregunta
+        speakCurrentQuestion();
       }
     }
-  }, [survey, voiceEnabled, micPermission]);
+  }, [survey, voiceEnabled, micPermission, loading]);
   
-  // Función para iniciar la conversación
-  const startConversation = () => {
-    if (!voiceEnabled || !survey) return;
+  // Solicitar permiso del micrófono
+  const requestMicrophonePermission = async () => {
+    setConversationState('requesting_permission');
+    setConversationMessage('Solicitando permiso para el micrófono...');
     
-    conversationActive.current = true;
-    
-    // Dar un mensaje de bienvenida
-    if (survey.welcomeMessage) {
-      speakText(survey.welcomeMessage, () => {
-        // Después de la bienvenida, preguntar la primera pregunta
-        speakCurrentQuestion();
-      });
-    } else {
-      // Si no hay mensaje de bienvenida, ir directamente a la primera pregunta
-      speakCurrentQuestion();
+    try {
+      const permissionGranted = await audioService.requestMicrophonePermission();
+      
+      if (permissionGranted) {
+        setMicPermission('granted');
+        setConversationMessage('Permiso concedido. Iniciando encuesta por voz...');
+      } else {
+        setMicPermission('denied');
+        setConversationState('permission_denied');
+        setConversationMessage('Se necesita acceso al micrófono para usar la función de voz');
+      }
+    } catch (error) {
+      console.error('Error al solicitar permiso:', error);
+      setMicPermission('denied');
+      setConversationState('error');
+      setConversationMessage('Error al solicitar permiso del micrófono');
     }
   };
   
-  // Función para hablar el texto usando el servicio de audio con pausas naturales
+  // Función para hablar el texto usando el servicio de audio
   const speakText = (text, onEndCallback) => {
     if (!voiceEnabled) {
       if (onEndCallback) onEndCallback();
@@ -162,50 +152,47 @@ const TakeSurvey = () => {
     
     // Detener cualquier reconocimiento en curso para evitar conflictos
     audioService.stop();
+    setIsListening(false);
     
-    // Pausa significativa antes de comenzar a hablar (1 segundo)
+    // Pequeña pausa antes de hablar
     speakTimeoutRef.current = setTimeout(() => {
       setConversationState('speaking');
       setConversationMessage('Hablando: ' + text.substring(0, 30) + (text.length > 30 ? '...' : ''));
-      
-      // Calcular un tiempo estimado basado en la longitud del texto (125ms por carácter para ser más conservador)
-      const estimatedSpeakTime = Math.max(4000, text.length * 125);
-      console.log(`Tiempo estimado para hablar: ${estimatedSpeakTime}ms`);
       
       audioService.speakText(
         text,
         () => {
           console.log('Comenzando a hablar:', text);
+          if (text.includes('Pregunta')) {
+            questionSpeakingRef.current = true;
+          }
         },
         () => {
           console.log('Terminó de hablar la frase completa');
-          setConversationState('processing');
-          setConversationMessage('Procesando...');
+          setConversationState('idle');
           
-          // Esperar un tiempo más largo después de hablar (2 segundos) para una pausa natural
-          // Esta pausa simula el tiempo que una persona tomaría para procesar lo que escuchó
-          speakTimeoutRef.current = setTimeout(() => {
-            setConversationState('idle');
-            if (onEndCallback) {
-              onEndCallback();
-            }
-          }, 2000);
+          // Marcar que ya no está hablando la pregunta
+          if (questionSpeakingRef.current) {
+            questionSpeakingRef.current = false;
+          }
+          
+          // Llamar al callback después de hablar, si existe
+          if (onEndCallback) {
+            onEndCallback();
+          }
         },
         (error) => {
           console.error('Error al hablar:', error);
           setConversationState('error');
           setConversationMessage(`Error: ${error}`);
           
-          // En caso de error, esperar un poco antes de continuar
-          speakTimeoutRef.current = setTimeout(() => {
-            setConversationState('idle');
-            if (onEndCallback) {
-              onEndCallback();
-            }
-          }, 1500);
+          // En caso de error, intentar continuar
+          if (onEndCallback) {
+            onEndCallback();
+          }
         }
       );
-    }, 1000); // Esperar 1 segundo antes de iniciar una nueva síntesis para asegurar separación clara
+    }, 300);
   };
   
   // Función para hablar la pregunta actual
@@ -225,15 +212,18 @@ const TakeSurvey = () => {
       ).join(', ');
     }
     
-    speakText(questionText, () => {
-      // Después de hablar la pregunta, iniciar el reconocimiento de voz
-      startListening();
-    });
+    speakText(questionText, null);
   };
   
   // Función para iniciar la escucha de la respuesta del usuario
   const startListening = async () => {
     if (!voiceEnabled) return;
+    
+    // Si está hablando la pregunta, esperar a que termine
+    if (questionSpeakingRef.current) {
+      setConversationMessage('Espera a que termine de leer la pregunta...');
+      return;
+    }
     
     if (!audioService.isSupportedByBrowser()) {
       setError('Tu navegador no soporta reconocimiento de voz');
@@ -245,12 +235,13 @@ const TakeSurvey = () => {
       return;
     }
     
+    // Detener cualquier síntesis de voz en curso
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    
     // Inicializar el reconocimiento de voz con el idioma español
     audioService.init('es-ES');
-    
-    // Limpiar cualquier texto reconocido previamente
-    setRecognizedText('');
-    setCurrentResponse('');
     
     audioService.onResult((transcript, isFinal) => {
       setCurrentResponse(transcript);
@@ -260,42 +251,26 @@ const TakeSurvey = () => {
     audioService.onEnd((finalTranscript) => {
       setIsListening(false);
       setConversationState('processing');
-      setConversationMessage('Procesando respuesta...');
+      setConversationMessage('Reconocimiento finalizado');
       
-      // Guardar la respuesta y continuar la conversación
-      handleVoiceResponse(finalTranscript);
+      // Guardar la respuesta
+      if (finalTranscript && finalTranscript.trim() !== '') {
+        // Guardar respuesta en el array de respuestas
+        const updatedResponses = [...responses];
+        updatedResponses[currentQuestionIndex] = finalTranscript;
+        setResponses(updatedResponses);
+        
+        // Actualizar respuesta actual mostrada
+        setCurrentResponse(finalTranscript);
+      }
     });
     
     audioService.onError((errorMessage) => {
       console.log('Manejando error de reconocimiento:', errorMessage);
       
-      // Error especial que indica que está esperando input
-      if (errorMessage === 'waiting') {
-        // No mostrar error, solo actualizar el estado para indicar que está esperando
-        setConversationState('waiting');
-        setConversationMessage('Esperando respuesta...');
-        return; // No hacer nada más, el servicio reiniciará la escucha automáticamente
-      }
-      
-      // Para otros errores, mostrar mensaje y reintentar
-      console.error('Error de reconocimiento:', errorMessage);
-      setError(`Error de reconocimiento: ${errorMessage}`);
       setIsListening(false);
-      setConversationState('idle');
-      
-      // Si es un error de reconocimiento genuino, reintentar la escucha
-      if (errorMessage !== 'aborted' && errorMessage !== 'no-speech') {
-        speakTimeoutRef.current = setTimeout(() => {
-          speakText('Hubo un problema con el reconocimiento de voz. Intentémoslo de nuevo.', () => {
-            startListening();
-          });
-        }, 10000);
-      } else {
-        // Para errores menos graves, simplemente reintentar sin mensaje
-        speakTimeoutRef.current = setTimeout(() => {
-          startListening();
-        }, 1000);
-      }
+      setConversationState('error');
+      setConversationMessage(`Error: ${errorMessage}`);
     });
     
     try {
@@ -303,7 +278,7 @@ const TakeSurvey = () => {
       if (started) {
         setIsListening(true);
         setConversationState('listening');
-        setConversationMessage('Escuchando...');
+        setConversationMessage('Escuchando tu respuesta...');
       } else {
         setError('No se pudo iniciar el reconocimiento de voz');
         setConversationState('idle');
@@ -314,47 +289,128 @@ const TakeSurvey = () => {
     }
   };
   
-  // Manejar la respuesta por voz
-  const handleVoiceResponse = (response) => {
-    // Limpiar cualquier error previo
-    setError(null);
-    
-    if (!response || response.trim() === '') {
-      // Si no hay respuesta, pedir que repita una vez más sin repetir muchas veces
-      if (currentResponse) {
-        // Si ya había algo en la respuesta actual, usamos eso en lugar de nada
-        response = currentResponse;
-      } else {
-        speakText('No he escuchado ninguna respuesta clara. Por favor, intenta hablar más fuerte.', () => {
-          startListening();
-        });
-        return;
-      }
+  // Detener la escucha de voz
+  const stopListening = () => {
+    if (isListening) {
+      audioService.stop();
+      setIsListening(false);
+      setConversationState('idle');
+      setConversationMessage('Escucha detenida');
     }
-    
+  };
+  
+  // Navegar a la siguiente pregunta
+  const goToNextQuestion = () => {
     // Guardar la respuesta actual
     const updatedResponses = [...responses];
-    updatedResponses[currentQuestionIndex] = response;
+    updatedResponses[currentQuestionIndex] = currentResponse;
     setResponses(updatedResponses);
     
-    // Dar feedback al usuario
-    speakText(`He registrado tu respuesta: ${response}.`, () => {
-      // Pasar a la siguiente pregunta o finalizar
-      if (currentQuestionIndex < survey.questions.length - 1) {
-        setCurrentQuestionIndex(currentQuestionIndex + 1);
-        setCurrentResponse('');
-        // Hablar la siguiente pregunta después de un breve pausa
-        speakTimeoutRef.current = setTimeout(() => {
-          speakCurrentQuestion();
-        }, 1000);
-      } else {
-        // Si es la última pregunta, mostrar confirmación
-        setShowConfirmation(true);
+    // Parar la escucha si está activa
+    if (isListening) {
+      audioService.stop();
+      setIsListening(false);
+    }
+    
+    // Detener cualquier síntesis de voz en curso
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    
+    if (speakTimeoutRef.current) {
+      clearTimeout(speakTimeoutRef.current);
+      speakTimeoutRef.current = null;
+    }
+    
+    // Avanzar a la siguiente pregunta o mostrar confirmación
+    if (currentQuestionIndex < survey.questions.length - 1) {
+      // Primero actualizamos el índice
+      const nextIndex = currentQuestionIndex + 1;
+      setCurrentQuestionIndex(nextIndex);
+      setCurrentResponse(responses[nextIndex] || '');
+      
+      // Esperamos a que React actualice el estado y luego leemos la nueva pregunta
+      setTimeout(() => {
+        if (voiceEnabled) {
+          // Obtener directamente la pregunta del array para asegurarnos de leer la correcta
+          const nextQuestion = survey.questions[nextIndex];
+          if (nextQuestion) {
+            let questionText = `Pregunta ${nextIndex + 1}: ${nextQuestion.text}`;
+            
+            // Agregar información sobre opciones si es pregunta de opción múltiple
+            if (nextQuestion.type === 'multiple_choice' && nextQuestion.options) {
+              questionText += '. Las opciones son: ';
+              questionText += nextQuestion.options.map((option, idx) => 
+                `Opción ${idx + 1}: ${option}`
+              ).join(', ');
+            }
+            
+            speakText(questionText, null);
+          }
+        }
+      }, 300);
+      
+    } else {
+      // Si es la última pregunta, mostrar confirmación
+      setShowConfirmation(true);
+      if (voiceEnabled) {
         speakText('Hemos terminado todas las preguntas. Ahora te mostraré un resumen de tus respuestas para que las confirmes.', () => {
           speakConfirmationSummary();
         });
       }
-    });
+    }
+  };
+  
+  // Navegar a la pregunta anterior
+  const goToPreviousQuestion = () => {
+    if (currentQuestionIndex <= 0) return;
+    
+    // Guardar la respuesta actual
+    const updatedResponses = [...responses];
+    updatedResponses[currentQuestionIndex] = currentResponse;
+    setResponses(updatedResponses);
+    
+    // Parar la escucha si está activa
+    if (isListening) {
+      audioService.stop();
+      setIsListening(false);
+    }
+    
+    // Detener cualquier síntesis de voz en curso
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    
+    if (speakTimeoutRef.current) {
+      clearTimeout(speakTimeoutRef.current);
+      speakTimeoutRef.current = null;
+    }
+    
+    // Ir a la pregunta anterior
+    const prevIndex = currentQuestionIndex - 1;
+    setCurrentQuestionIndex(prevIndex);
+    setCurrentResponse(responses[prevIndex] || '');
+    
+    // Esperamos a que React actualice el estado y luego leemos la nueva pregunta
+    setTimeout(() => {
+      if (voiceEnabled) {
+        // Obtener directamente la pregunta del array para asegurarnos de leer la correcta
+        const prevQuestion = survey.questions[prevIndex];
+        if (prevQuestion) {
+          let questionText = `Pregunta ${prevIndex + 1}: ${prevQuestion.text}`;
+          
+          // Agregar información sobre opciones si es pregunta de opción múltiple
+          if (prevQuestion.type === 'multiple_choice' && prevQuestion.options) {
+            questionText += '. Las opciones son: ';
+            questionText += prevQuestion.options.map((option, idx) => 
+              `Opción ${idx + 1}: ${option}`
+            ).join(', ');
+          }
+          
+          speakText(questionText, null);
+        }
+      }
+    }, 300);
   };
   
   // Leer el resumen de confirmación
@@ -369,134 +425,113 @@ const TakeSurvey = () => {
     
     summaryText += '¿Deseas enviar estas respuestas o volver para revisar alguna?';
     
-    speakText(summaryText, () => {
-      // Escuchar confirmación del usuario
-      listenForConfirmation();
-    });
+    speakText(summaryText, null);
   };
   
-  // Escuchar la confirmación del usuario usando NLP para mejor reconocimiento
+  // Escuchar la confirmación del usuario - activada por botón
   const listenForConfirmation = () => {
     if (!voiceEnabled) return;
     
-    // Esperar un momento antes de empezar a escuchar para dar tiempo a que termine de hablar
-    // y para simular un ritmo de conversación natural
+    // Iniciar escucha directamente
     setConversationState('waiting');
-    setConversationMessage('Esperando tu respuesta...');
+    setConversationMessage('Esperando confirmación...');
     
-    // Esperar 3 segundos antes de empezar a escuchar para una interacción más natural
-    setTimeout(() => {
-      audioService.init('es-ES');
+    audioService.init('es-ES');
+    
+    audioService.onResult((transcript, isFinal) => {
+      // Mostrar lo que está diciendo el usuario en tiempo real
+      setCurrentResponse(transcript);
+      setConversationMessage(isFinal ? 'Procesando tu respuesta...' : `Escuchando: ${transcript}`);
+    });
+    
+    audioService.onEnd((finalTranscript) => {
+      setIsListening(false);
+      setConversationState('processing');
+      setConversationMessage('Analizando respuesta...');
       
-      audioService.onResult((transcript, isFinal) => {
-        // Mostrar lo que está diciendo el usuario en tiempo real
-        setCurrentResponse(transcript);
-        setConversationMessage(isFinal ? 'Procesando tu respuesta...' : `Escuchando: ${transcript}`);
-      });
+      console.log('Respuesta final recibida:', finalTranscript);
       
-      audioService.onEnd((finalTranscript) => {
-        setIsListening(false);
-        setConversationState('processing');
-        setConversationMessage('Analizando respuesta...');
-        
-        console.log('Respuesta final recibida:', finalTranscript);
-        
-        // Usar una pausa para procesar la respuesta y dar una sensación más natural
-        setTimeout(() => {
-          // Analizar respuesta utilizando NLP para una mejor comprensión
-          try {
-            // Utilizar el servicio NLP para analizar respuesta de forma más precisa
-            const result = nlpService.analyzeIntent(finalTranscript.toLowerCase());
-            console.log('Análisis NLP:', result);
+      // Analizar respuesta
+      setTimeout(() => {
+        try {
+          // Utilizar el servicio NLP para analizar respuesta
+          const result = nlpService.analyzeIntent(finalTranscript.toLowerCase());
+          console.log('Análisis NLP:', result);
+          
+          // Comprobar si la intención es afirmativa
+          const isAffirmative = result.intent === 'afirmacion' || 
+                            finalTranscript.toLowerCase().includes('sí') || 
+                            finalTranscript.toLowerCase().includes('si') ||
+                            finalTranscript.toLowerCase().includes('confirmar') ||
+                            finalTranscript.toLowerCase().includes('enviar');
+                            
+          // Comprobar si la intención es negativa
+          const isNegative = result.intent === 'negacion' || 
+                          finalTranscript.toLowerCase().includes('no') ||
+                          finalTranscript.toLowerCase().includes('revisar') ||
+                          finalTranscript.toLowerCase().includes('volver');
+          
+          if (isAffirmative) {
+            // Confirmado - enviar respuestas
+            setConversationState('confirmed');
+            setConversationMessage('Confirmado. Enviando respuestas...');
             
-            // Comprobar si la intención es afirmativa
-            const isAffirmative = result.intent === 'afirmacion' || 
-                              finalTranscript.toLowerCase().includes('sí') || 
-                              finalTranscript.toLowerCase().includes('si') ||
-                              finalTranscript.toLowerCase().includes('confirmar') ||
-                              finalTranscript.toLowerCase().includes('enviar');
-                              
-            // Comprobar si la intención es negativa
-            const isNegative = result.intent === 'negacion' || 
-                            finalTranscript.toLowerCase().includes('no') ||
-                            finalTranscript.toLowerCase().includes('revisar') ||
-                            finalTranscript.toLowerCase().includes('volver');
+            speakText('Perfecto, estoy enviando tus respuestas ahora.', () => {
+              handleSubmit();
+            });
+          } else if (isNegative) {
+            // Volver a revisar
+            setConversationState('reviewing');
+            setConversationMessage('Volviendo a revisar las preguntas...');
             
-            if (isAffirmative) {
-              // Confirmado - enviar respuestas
-              setConversationState('confirmed');
-              setConversationMessage('Confirmado. Enviando respuestas...');
-              
-              speakText('Perfecto, estoy enviando tus respuestas ahora.', () => {
-                handleSubmit();
-              });
-            } else if (isNegative) {
-              // Volver a revisar
-              setConversationState('reviewing');
-              setConversationMessage('Volviendo a revisar las preguntas...');
-              
-              setShowConfirmation(false);
-              speakText('De acuerdo, volvamos a revisar las preguntas. Puedes navegar entre ellas usando los botones de anterior y siguiente.', null);
-            } else {
-              // Respuesta no clara - pedir clarificación
-              setConversationState('unclear');
-              setConversationMessage('No entendí tu respuesta...');
-              
-              speakText('No he entendido si deseas confirmar o revisar. Por favor, dime claramente "confirmar" para enviar las respuestas o "revisar" para volver a las preguntas.', () => {
-                // Intentar nuevamente después de una pausa 
-                setTimeout(() => {
-                  listenForConfirmation();
-                }, 10000); // Esperar 2 segundos antes de volver a escuchar
-              });
-            }
-          } catch (error) {
-            console.error('Error al procesar la respuesta con NLP:', error);
-            // Fallback al método simple en caso de error con NLP
-            const lowerResponse = finalTranscript.toLowerCase();
-            
-            if (lowerResponse.includes('sí') || lowerResponse.includes('si') || 
-                lowerResponse.includes('confirmar') || lowerResponse.includes('enviar')) {
-              speakText('Perfecto, enviando tus respuestas.', () => {
-                handleSubmit();
-              });
-            } else if (lowerResponse.includes('no') || lowerResponse.includes('revisar')) {
-              setShowConfirmation(false);
-              speakText('De acuerdo, volvamos a revisar las preguntas.', null);
-            } else {
-              speakText('No he entendido tu respuesta. Por favor, intenta de nuevo.', () => {
-                setTimeout(() => {
-                  listenForConfirmation();
-                }, 30000);
-              });
-            }
+            setShowConfirmation(false);
+            speakText('De acuerdo, volvamos a revisar las preguntas.', null);
+          } else {
+            // Respuesta no clara
+            setConversationState('unclear');
+            setConversationMessage('No entendí tu respuesta, intenta de nuevo o usa los botones');
           }
-        }, 100); // Pausa para procesar la respuesta
-      });
-      
-      audioService.onError((errorMessage) => {
-        console.error('Error en reconocimiento de voz:', errorMessage);
-        setIsListening(false);
-        setConversationState('error');
-        setConversationMessage(`Error al escuchar: ${errorMessage}`);
-        
-        speakText('Hubo un problema al escuchar tu confirmación. Por favor, usa los botones en pantalla para confirmar o volver, o intenta hablar más claramente.', null);
-      });
-      
-      // Iniciar el reconocimiento de voz
-      audioService.start();
-      setIsListening(true);
-      setConversationState('listening');
-      setConversationMessage('Escuchando tu confirmación...');
-      
-      // Reproducir un sonido suave para indicar que está listo para escuchar
-      try {
-        const beep = new Audio('/assets/sounds/listen-beep.mp3');
-        beep.volume = 0.9;
-        beep.play();
-      } catch (error) {
-        console.log('No se pudo reproducir el sonido de inicio de escucha');
-      }
-    }, 10000); // Pausa considerable antes de empezar a escuchar
+        } catch (error) {
+          console.error('Error al procesar la respuesta con NLP:', error);
+          // Fallback simple en caso de error
+          const lowerResponse = finalTranscript.toLowerCase();
+          
+          if (lowerResponse.includes('sí') || lowerResponse.includes('si') || 
+              lowerResponse.includes('confirmar') || lowerResponse.includes('enviar')) {
+            speakText('Perfecto, enviando tus respuestas.', () => {
+              handleSubmit();
+            });
+          } else if (lowerResponse.includes('no') || lowerResponse.includes('revisar')) {
+            setShowConfirmation(false);
+            speakText('De acuerdo, volvamos a revisar las preguntas.', null);
+          } else {
+            setConversationMessage('No entendí tu respuesta, intenta de nuevo o usa los botones');
+          }
+        }
+      }, 100);
+    });
+    
+    audioService.onError((errorMessage) => {
+      console.error('Error en reconocimiento de voz:', errorMessage);
+      setIsListening(false);
+      setConversationState('error');
+      setConversationMessage(`Error al escuchar: ${errorMessage}`);
+    });
+    
+    // Iniciar el reconocimiento de voz
+    audioService.start();
+    setIsListening(true);
+    setConversationState('listening');
+    setConversationMessage('Escuchando tu confirmación...');
+    
+    // Reproducir un sonido para indicar que está listo
+    try {
+      const beep = new Audio('/assets/sounds/listen-beep.mp3');
+      beep.volume = 0.9;
+      beep.play();
+    } catch (error) {
+      console.log('No se pudo reproducir el sonido de inicio de escucha');
+    }
   };
   
   // Enviar todas las respuestas
@@ -507,11 +542,11 @@ const TakeSurvey = () => {
       // Preparar objeto de respuesta
       const responseData = {
         surveyId: survey._id,
-        responses: survey.questions.map((question, index) => ({
+        respondentName: respondentName || 'Anónimo',
+        userAgent: navigator.userAgent,
+        answers: survey.questions.map((question, index) => ({
           questionId: question._id,
-          questionText: question.text,
-          responseText: responses[index] || '',
-          questionType: question.type
+          value: responses[index] || ''
         }))
       };
       
@@ -572,18 +607,35 @@ const TakeSurvey = () => {
         <h2 className="text-lg font-bold mb-2">{survey.title}</h2>
         <p className="text-sm mb-3">{survey.description}</p>
         
-        {micPermission === 'unknown' && (
-          <button
-            onClick={requestMicrophonePermission}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md mb-2"
-          >
-            Permitir micrófono para continuar
-          </button>
-        )}
-        
-        {micPermission === 'denied' && (
-          <p className="text-red-600 mb-2">Se necesita acceso al micrófono para usar la función de voz.</p>
-        )}
+        {/* Controles de voz */}
+        <div className="mb-3 flex flex-wrap justify-center gap-2">
+          {micPermission === 'unknown' ? (
+            <button
+              onClick={requestMicrophonePermission}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md"
+            >
+              Permitir micrófono para continuar
+            </button>
+          ) : micPermission === 'denied' ? (
+            <p className="text-red-600 mb-2">Se necesita acceso al micrófono para usar la función de voz.</p>
+          ) : (
+            <>
+              <button
+                onClick={isListening ? stopListening : startListening}
+                className={`px-4 py-2 ${isListening ? 'bg-red-600' : 'bg-blue-600'} text-white rounded-md`}
+                disabled={conversationState === 'speaking'}
+              >
+                {isListening ? 'Detener escucha' : 'Registrar respuesta'}
+              </button>
+              <button
+                onClick={() => setVoiceEnabled(!voiceEnabled)}
+                className={`px-4 py-2 ${voiceEnabled ? 'bg-gray-700' : 'bg-gray-400'} text-white rounded-md`}
+              >
+                {voiceEnabled ? 'Desactivar voz' : 'Activar voz'}
+              </button>
+            </>
+          )}
+        </div>
         
         <p className="font-semibold">
           {showConfirmation 
@@ -608,32 +660,51 @@ const TakeSurvey = () => {
               </div>
             ))}
           </div>
-          {isListening ? (
-            <p className="text-center text-green-700 animate-pulse">
-              Di "confirmar" para enviar o "revisar" para volver
-            </p>
-          ) : (
-            <div className="flex justify-end mt-2">
-              <button
-                onClick={() => {
-                  setShowConfirmation(false);
-                  setConversationState('reviewing');
-                  setConversationMessage('Revisando preguntas...');
-                }}
-                className="px-3 py-1 bg-gray-200 text-gray-800 rounded mr-2"
-                disabled={isSubmitting}
-              >
-                Revisar
-              </button>
-              <button
-                onClick={handleSubmit}
-                className="px-3 py-1 bg-green-600 text-white rounded"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? 'Enviando...' : 'Confirmar'}
-              </button>
-            </div>
-          )}
+          
+          {/* Controles específicos para confirmación */}
+          <div className="mt-4 flex justify-center gap-2">
+            {isListening ? (
+              <>
+                <p className="text-center text-green-700 animate-pulse">
+                  Di "confirmar" para enviar o "revisar" para volver
+                </p>
+                <button
+                  onClick={stopListening}
+                  className="px-3 py-1 bg-red-600 text-white rounded ml-2"
+                >
+                  Detener escucha
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={listenForConfirmation}
+                  className="px-4 py-2 bg-blue-600 text-white rounded"
+                  disabled={isSubmitting}
+                >
+                  Responder por voz
+                </button>
+                <button
+                  onClick={() => {
+                    setShowConfirmation(false);
+                    setConversationState('reviewing');
+                    setConversationMessage('Revisando preguntas...');
+                  }}
+                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded"
+                  disabled={isSubmitting}
+                >
+                  Revisar
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  className="px-4 py-2 bg-green-600 text-white rounded"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? 'Enviando...' : 'Confirmar'}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow p-4 mb-4">
@@ -652,51 +723,27 @@ const TakeSurvey = () => {
           )}
           
           {/* Respuesta actual */}
-          {isListening ? (
-            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-md text-center animate-pulse">
-              <p><span className="font-medium">Escuchando</span>: {currentResponse || "..."}</p>
-            </div>
-          ) : (
-            <div className="mt-3">
-              <p className="text-sm font-medium text-gray-700">Tu respuesta:</p>
-              <p className="p-2 bg-gray-50 rounded min-h-10">{currentResponse || "Esperando respuesta por voz..."}</p>
-              <button 
-                onClick={startListening}
-                className="mt-2 px-3 py-1 bg-blue-500 text-white rounded-md text-sm"
-              >
-                Responder por voz
-              </button>
-            </div>
-          )}
+          <div className={`mt-3 p-3 ${isListening ? 'bg-green-50 border border-green-200 animate-pulse' : 'bg-gray-50 border border-gray-200'} rounded-md`}>
+            <p className="text-sm font-medium text-gray-700 mb-1">Tu respuesta:</p>
+            <p className="min-h-10">
+              {isListening 
+                ? <span className="text-green-600">{currentResponse || "Escuchando..."}</span>
+                : currentResponse || "(Sin respuesta)"}
+            </p>
+          </div>
           
-          {/* Botones de navegación mínimos */}
+          {/* Botones de navegación */}
           <div className="flex justify-between mt-4">
             <button
-              onClick={() => {
-                if (currentQuestionIndex > 0) {
-                  setCurrentQuestionIndex(currentQuestionIndex - 1);
-                  setCurrentResponse(responses[currentQuestionIndex - 1]);
-                }
-              }}
+              onClick={goToPreviousQuestion}
               disabled={currentQuestionIndex === 0}
-              className="px-3 py-1 text-sm rounded disabled:opacity-50"
+              className="px-4 py-2 text-gray-700 bg-gray-200 rounded disabled:opacity-50 hover:bg-gray-300"
             >
               ← Anterior
             </button>
             <button
-              onClick={() => {
-                const updatedResponses = [...responses];
-                updatedResponses[currentQuestionIndex] = currentResponse;
-                setResponses(updatedResponses);
-                
-                if (currentQuestionIndex < survey.questions.length - 1) {
-                  setCurrentQuestionIndex(currentQuestionIndex + 1);
-                  setCurrentResponse('');
-                } else {
-                  setShowConfirmation(true);
-                }
-              }}
-              className="px-3 py-1 text-sm bg-blue-500 text-white rounded"
+              onClick={goToNextQuestion}
+              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
             >
               {currentQuestionIndex < survey.questions.length - 1 ? 'Siguiente →' : 'Revisar respuestas'}
             </button>
