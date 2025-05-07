@@ -1,8 +1,9 @@
 services:
   - type: web
     name: encuestas-por-voz-client
-    env: docker
-    dockerfilePath: ./Dockerfile
+    env: static
+    buildCommand: npm install && CI=false npm run build
+    staticPublishPath: ./build
     envVars:
       - key: NODE_VERSION
         value: 20.11.1
