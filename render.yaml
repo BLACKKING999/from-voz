@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: encuestas-por-voz-client
+    env: static
+    buildCommand: chmod +x build.sh && ./build.sh
+    staticPublishPath: ./build
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.1
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
