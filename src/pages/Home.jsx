@@ -37,7 +37,7 @@ const Home = () => {
         </div>
         <div className="lg:w-1/2">
           <img 
-            src="https://via.placeholder.com/600x400?text=Encuestas+por+Voz" 
+            src="/logo192.png" 
             alt="Encuestas por Voz" 
             className="rounded-lg shadow-xl"
           />

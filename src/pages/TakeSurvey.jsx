@@ -42,12 +42,10 @@ const TakeSurvey = () => {
     const fetchSurvey = async () => {
       try {
         const data = await SurveyService.getPublicSurvey(surveyId);
-        console.log('Encuesta cargada:', data);
         setSurvey(data);
         // Inicializar respuestas vacías
         setResponses(new Array(data.questions.length).fill(''));
       } catch (error) {
-        console.error('Error al cargar la encuesta:', error);
         setError('No se pudo cargar la encuesta. Verifique que el ID sea correcto y que la encuesta esté activa.');
       } finally {
         setLoading(false);
@@ -89,7 +87,6 @@ const TakeSurvey = () => {
     // Solo iniciar si tenemos encuesta, voz habilitada, permiso, y no hemos iniciado antes
     if (survey && voiceEnabled && micPermission === 'granted' && !hasInitializedRef.current && !loading) {
       hasInitializedRef.current = true;
-      console.log("Iniciando encuesta por primera vez");
       
       // Dar un mensaje de bienvenida y luego la primera pregunta
       if (survey.welcomeMessage && !hasPlayedWelcomeRef.current) {
@@ -124,7 +121,6 @@ const TakeSurvey = () => {
         setConversationMessage('Se necesita acceso al micrófono para usar la función de voz');
       }
     } catch (error) {
-      console.error('Error al solicitar permiso:', error);
       setMicPermission('denied');
       setConversationState('error');
       setConversationMessage('Error al solicitar permiso del micrófono');
@@ -137,8 +133,6 @@ const TakeSurvey = () => {
       if (onEndCallback) onEndCallback();
       return;
     }
-    
-    console.log('Preparando para hablar:', text);
     
     // Cancela cualquier síntesis en curso y limpia los timeouts anteriores
     if (window.speechSynthesis) {
@@ -162,13 +156,11 @@ const TakeSurvey = () => {
       audioService.speakText(
         text,
         () => {
-          console.log('Comenzando a hablar:', text);
           if (text.includes('Pregunta')) {
             questionSpeakingRef.current = true;
           }
         },
         () => {
-          console.log('Terminó de hablar la frase completa');
           setConversationState('idle');
           
           // Marcar que ya no está hablando la pregunta
@@ -182,7 +174,6 @@ const TakeSurvey = () => {
           }
         },
         (error) => {
-          console.error('Error al hablar:', error);
           setConversationState('error');
           setConversationMessage(`Error: ${error}`);
           
@@ -266,8 +257,6 @@ const TakeSurvey = () => {
     });
     
     audioService.onError((errorMessage) => {
-      console.log('Manejando error de reconocimiento:', errorMessage);
-      
       setIsListening(false);
       setConversationState('error');
       setConversationMessage(`Error: ${errorMessage}`);
@@ -449,14 +438,11 @@ const TakeSurvey = () => {
       setConversationState('processing');
       setConversationMessage('Analizando respuesta...');
       
-      console.log('Respuesta final recibida:', finalTranscript);
-      
       // Analizar respuesta
       setTimeout(() => {
         try {
           // Utilizar el servicio NLP para analizar respuesta
           const result = nlpService.analyzeIntent(finalTranscript.toLowerCase());
-          console.log('Análisis NLP:', result);
           
           // Comprobar si la intención es afirmativa
           const isAffirmative = result.intent === 'afirmacion' || 
@@ -492,7 +478,6 @@ const TakeSurvey = () => {
             setConversationMessage('No entendí tu respuesta, intenta de nuevo o usa los botones');
           }
         } catch (error) {
-          console.error('Error al procesar la respuesta con NLP:', error);
           // Fallback simple en caso de error
           const lowerResponse = finalTranscript.toLowerCase();
           
@@ -512,7 +497,6 @@ const TakeSurvey = () => {
     });
     
     audioService.onError((errorMessage) => {
-      console.error('Error en reconocimiento de voz:', errorMessage);
       setIsListening(false);
       setConversationState('error');
       setConversationMessage(`Error al escuchar: ${errorMessage}`);
@@ -530,7 +514,7 @@ const TakeSurvey = () => {
       beep.volume = 0.9;
       beep.play();
     } catch (error) {
-      console.log('No se pudo reproducir el sonido de inicio de escucha');
+      // No se pudo reproducir el sonido de inicio de escucha
     }
   };
   
@@ -572,7 +556,6 @@ const TakeSurvey = () => {
         });
       }
     } catch (error) {
-      console.error('Error al enviar respuestas:', error);
       setError('Ocurrió un error al enviar tus respuestas. Por favor, intenta nuevamente.');
       setIsSubmitting(false);
       

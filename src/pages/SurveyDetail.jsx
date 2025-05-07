@@ -38,7 +38,6 @@ const SurveyDetail = () => {
         
         setLoading(false);
       } catch (error) {
-        console.error('Error al cargar la encuesta:', error);
         setError('Error al cargar la encuesta: ' + (error.message || 'Error desconocido'));
         setLoading(false);
       }
@@ -140,7 +139,6 @@ const SurveyDetail = () => {
   const getQuestionResponses = (questionId) => {
     // Verificar que responses es un array
     if (!Array.isArray(responses)) {
-      console.warn('responses no es un array:', responses);
       return [];
     }
     
@@ -152,7 +150,6 @@ const SurveyDetail = () => {
           const answer = response.answers.find(a => a && a.questionId === questionId);
           return answer ? [{ value: answer.value }] : [];
         } catch (error) {
-          console.error('Error procesando respuesta:', error, response);
           return [];
         }
       });
@@ -172,7 +169,6 @@ const SurveyDetail = () => {
       
       navigate('/dashboard');
     } catch (error) {
-      console.error('Error al eliminar la encuesta:', error);
       setError('Error al eliminar la encuesta: ' + (error.message || 'Error desconocido'));
       setLoading(false);
     }

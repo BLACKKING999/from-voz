@@ -16,9 +16,6 @@ const apiClient = axios.create({
   withCredentials: false // Cambiar a true si necesitas enviar cookies
 });
 
-// Log para depuración
-console.log('API client configurado con URL base:', `${API_BASE_URL}${API_PREFIX}`);
-
 /**
  * Agrega el token de autenticación al header
  * @returns {Promise<string>} El token de autenticación
@@ -48,7 +45,6 @@ export const get = async (url, params = {}, requireAuth = true) => {
       }
     }
     
-    console.log(`Realizando GET a ${url}`, { params });
     const response = await apiClient.get(url, { params, headers });
     return response.data;
   } catch (error) {
@@ -74,7 +70,6 @@ export const post = async (url, data = {}, requireAuth = true) => {
       }
     }
     
-    console.log(`Realizando POST a ${url}`, { data });
     const response = await apiClient.post(url, data, { headers });
     return response.data;
   } catch (error) {
@@ -137,16 +132,6 @@ export const remove = async (url, requireAuth = true) => {
  * @param {Error} error - Error de la petición
  */
 const handleApiError = (error) => {
-  // Log detallado del error para debugging
-  console.error('Error en la petición a la API:', {
-    message: error.message,
-    response: error.response ? {
-      status: error.response.status,
-      data: error.response.data
-    } : 'Sin respuesta del servidor',
-    request: error.request ? 'La petición se realizó pero no se recibió respuesta' : 'No se pudo realizar la petición'
-  });
-  
   // Aquí puedes implementar lógica adicional, como mostrar notificaciones,
   // redirigir al usuario a la página de login si hay un error de autenticación, etc.
 };

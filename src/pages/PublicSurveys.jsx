@@ -15,11 +15,11 @@ const PublicSurveys = () => {
         // Usar el servicio centralizado para obtener las encuestas públicas
         const data = await SurveyService.getPublicSurveys();
         
-        console.log('Encuestas públicas cargadas:', data);
+      
         setSurveys(data);
         setLoading(false);
       } catch (error) {
-        console.error('Error al cargar encuestas públicas:', error);
+       
         setError('No se pudieron cargar las encuestas. Por favor, intenta de nuevo más tarde.');
         setLoading(false);
       }

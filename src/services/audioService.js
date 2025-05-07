@@ -44,7 +44,6 @@ class AudioService {
   initSpeechSystem() {
     // Verificar si la API está disponible
     if (typeof window === 'undefined' || !window.speechSynthesis) {
-      console.error('AudioService: Speech Synthesis no está disponible en este navegador');
       return false;
     }
   
@@ -54,20 +53,11 @@ class AudioService {
       if (voices.length > 0) {
         this.cachedVoices = voices;
         
-       
         // Buscar voces en español
         const spanishVoices = voices.filter(v => 
           v.lang.includes('es') || 
           v.name.toLowerCase().includes('spanish')
         );
-        
-        if (spanishVoices.length > 0) {
-          console.log('AudioService: Voces en español disponibles:', 
-            spanishVoices.map(v => `${v.name} (${v.lang})`).join(', ')
-          );
-        } else {
-          console.warn('AudioService: No se encontraron voces en español');
-        }
       }
     };
   
@@ -130,7 +120,6 @@ class AudioService {
     
     // Si ya estamos hablando, crear una cola temporal
     if (this.isSpeaking) {
-      console.log('AudioService: Ya estamos hablando, esperando...');
       // Cancelamos la síntesis actual y esperamos un momento antes de comenzar la nueva
       this.cancelSpeech();
       
@@ -164,21 +153,17 @@ class AudioService {
       );
       
       if (spanishVoice) {
-        console.log(`AudioService: Usando voz ${spanishVoice.name}`);
         utterance.voice = spanishVoice;
       } else if (voices.length > 0) {
-        console.log(`AudioService: No hay voces en español, usando ${voices[0].name}`);
         utterance.voice = voices[0];
       }
       
       // Configurar eventos
       utterance.onstart = () => {
-        console.log('AudioService: Síntesis iniciada');
         if (onStarted) onStarted();
       };
       
       utterance.onend = () => {
-        console.log('AudioService: Síntesis completada');
         this.isSpeaking = false;
         
         // Limpiar temporizadores
@@ -199,7 +184,6 @@ class AudioService {
       };
       
       utterance.onerror = (event) => {
-        console.error('AudioService: Error en síntesis:', event);
         this.isSpeaking = false;
         
         // Limpiar temporizadores
@@ -229,7 +213,6 @@ class AudioService {
         // 1. Workaround para el problema de Chrome donde la síntesis se detiene después de ~15s
         this.resumeInterval = setInterval(() => {
           if (window.speechSynthesis.speaking) {
-            console.log('AudioService: Aplicando workaround de pausa/resume');
             window.speechSynthesis.pause();
             window.speechSynthesis.resume();
           } else {
@@ -244,7 +227,6 @@ class AudioService {
         const maxSpeakingTime = Math.max(8000, text.length * 125);
         this.utteranceTimeoutId = setTimeout(() => {
           if (window.speechSynthesis.speaking) {
-            console.log(`AudioService: Detectado posible bloqueo después de ${maxSpeakingTime}ms, forzando finalización`);
             window.speechSynthesis.cancel();
             this.isSpeaking = false;
             
@@ -262,7 +244,6 @@ class AudioService {
         this.cancelSpeech();
       };
     } catch (error) {
-      console.error('AudioService: Error general:', error);
       this.isSpeaking = false;
       if (onError) onError(error.message || 'Error desconocido');
       return () => {};
@@ -275,7 +256,6 @@ class AudioService {
    */
   init(language = 'es-ES') {
     if (!this.isSupportedByBrowser()) {
-      console.error('El reconocimiento de voz no está soportado en este navegador');
       return false;
     }
     
@@ -325,16 +305,12 @@ class AudioService {
     };
     
     this.recognition.onend = () => {
-      console.log('AudioService: Reconocimiento finalizado');
-      
       // Detener análisis de audio si está activo
       this.stopAudioAnalysis();
       
       // Si estábamos escuchando activamente y hay un temporizador de silencio,
       // esperamos un poco más antes de considerar que realmente terminó
       if (this.isListening && this.silenceTimer) {
-        console.log('AudioService: Esperando un poco más antes de finalizar...');
-        
         // Esperar un poco más antes de considerar realmente finalizado
         setTimeout(() => {
           this.isListening = false;
@@ -361,8 +337,6 @@ class AudioService {
     };
     
     this.recognition.onerror = (event) => {
-      console.log('AudioService: Error de reconocimiento:', event.error);
-      
       // No marcar como no escuchando inmediatamente para ciertos errores
       if (event.error !== 'no-speech' && event.error !== 'audio-capture') {
         this.isListening = false;
@@ -374,8 +348,6 @@ class AudioService {
         if (this.restartAttempts < this.maxRestartAttempts) {
           this.restartAttempts++;
           
-          console.log(`AudioService: Reintentando reconocimiento (intento ${this.restartAttempts}/${this.maxRestartAttempts})`);
-          
           if (this.onErrorCallback) {
             this.onErrorCallback('waiting');
           }
@@ -386,8 +358,6 @@ class AudioService {
               try {
                 this.startRecognition();
               } catch (e) {
-                console.error('Error al reiniciar reconocimiento:', e);
-                
                 if (this.onErrorCallback) {
                   this.onErrorCallback('error_restart');
                 }
@@ -395,8 +365,6 @@ class AudioService {
             }
           }, 15000);  // Incrementado a 1.5s para dar más tiempo
         } else {
-          console.log('AudioService: Máximo de reintentos alcanzado');
-          
           if (this.onErrorCallback) {
             this.onErrorCallback('max_restarts');
           }
@@ -408,8 +376,6 @@ class AudioService {
     };
     
     this.recognition.onnomatch = () => {
-      console.log('AudioService: No se pudo encontrar una coincidencia');
-      
       // Considerar reiniciar el reconocimiento
       if (this.restartAttempts < this.maxRestartAttempts) {
         this.restartAttempts++;
@@ -418,14 +384,13 @@ class AudioService {
           try {
             this.startRecognition();
           } catch (e) {
-            console.error('Error al reiniciar tras no coincidencia:', e);
+            // Error silencioso
           }
         }, 1000);
       }
     };
     
     this.recognition.onaudiostart = () => {
-      console.log('AudioService: Audio detectado, reconocimiento activo');
       // Iniciar análisis de audio si es posible
       this.setupAudioAnalysis();
     };
@@ -461,7 +426,7 @@ class AudioService {
       // Iniciar monitoreo de volumen
       this.startVolumeMonitoring();
     } catch (error) {
-      console.error('Error al configurar análisis de audio:', error);
+      // Error silencioso
     }
   }
 
@@ -492,11 +457,6 @@ class AudioService {
       if (averageVolume > voiceThreshold) {
         // Se detectó voz, resetear temporizador de silencio
         this.resetSilenceTimer();
-      }
-      
-      // Log de debug cada cierto tiempo
-      if (Math.random() < 0.05) { // Solo loggear aproximadamente 5% del tiempo
-        console.log(`AudioService: Volumen promedio: ${averageVolume.toFixed(2)}`);
       }
     }, 200); // Comprobar cada 200ms
   }
@@ -541,11 +501,8 @@ class AudioService {
     
     // Configurar nuevo temporizador
     this.silenceTimer = setTimeout(() => {
-      console.log(`AudioService: Silencio detectado después de ${this.silenceThreshold}ms`);
-      
       // Si seguimos escuchando, es tiempo de considerar que el usuario ha terminado
       if (this.isListening) {
-        console.log('AudioService: Deteniendo reconocimiento por silencio prolongado');
         this.stop();
       }
     }, this.silenceThreshold);
@@ -566,10 +523,8 @@ class AudioService {
         // Configurar temporizador de tiempo máximo de espera
         setTimeout(() => {
           if (this.isListening) {
-            console.log(`AudioService: Tiempo máximo de espera (${this.speakingTimeout}ms) alcanzado`);
             // No detener directamente, sino revisar si hay actividad
             if (!this.finalTranscript && !this.interimTranscript) {
-              console.log('AudioService: No se detectó voz, deteniendo');
               this.stop();
             }
           }
@@ -577,7 +532,6 @@ class AudioService {
         
         return true;
       } catch (error) {
-        console.error('Error al iniciar reconocimiento:', error);
         this.isListening = false;
         return false;
       }
@@ -615,8 +569,6 @@ class AudioService {
         
         return true;
       } catch (error) {
-        console.error('Error al solicitar permiso para el micrófono:', error);
-        
         this.permissionGranted = false;
         // Notificar que el permiso fue denegado si hay un callback
         if (this.permissionCallback) {
@@ -626,7 +578,6 @@ class AudioService {
         return false;
       }
     } else {
-      console.error('getUserMedia no está soportado en este navegador');
       return false;
     }
   }
@@ -653,8 +604,6 @@ class AudioService {
     if (options.speakingTimeout && typeof options.speakingTimeout === 'number') {
       this.speakingTimeout = options.speakingTimeout;
     }
-    
-    console.log(`AudioService: Tiempos configurados - Silencio: ${this.silenceThreshold}ms, Espera máxima: ${this.speakingTimeout}ms`);
   }
 
   /**
@@ -697,7 +646,6 @@ class AudioService {
     // Resetear contador de intentos
     this.restartAttempts = 0;
     
-    console.log('AudioService: Iniciando reconocimiento de voz');
     return this.startRecognition();
   }
 
@@ -726,7 +674,6 @@ class AudioService {
         
         return true;
       } catch (error) {
-        console.error('Error al detener el reconocimiento de voz:', error);
         this.isListening = false;
         return false;
       }
