@@ -289,12 +289,12 @@ const TakeSurvey = () => {
           speakText('Hubo un problema con el reconocimiento de voz. Intentémoslo de nuevo.', () => {
             startListening();
           });
-        }, 3000);
+        }, 10000);
       } else {
         // Para errores menos graves, simplemente reintentar sin mensaje
         speakTimeoutRef.current = setTimeout(() => {
           startListening();
-        }, 1500);
+        }, 1000);
       }
     });
     
@@ -446,7 +446,7 @@ const TakeSurvey = () => {
                 // Intentar nuevamente después de una pausa 
                 setTimeout(() => {
                   listenForConfirmation();
-                }, 2000); // Esperar 2 segundos antes de volver a escuchar
+                }, 10000); // Esperar 2 segundos antes de volver a escuchar
               });
             }
           } catch (error) {
@@ -466,11 +466,11 @@ const TakeSurvey = () => {
               speakText('No he entendido tu respuesta. Por favor, intenta de nuevo.', () => {
                 setTimeout(() => {
                   listenForConfirmation();
-                }, 2000);
+                }, 30000);
               });
             }
           }
-        }, 1500); // Pausa para procesar la respuesta
+        }, 100); // Pausa para procesar la respuesta
       });
       
       audioService.onError((errorMessage) => {
@@ -491,12 +491,12 @@ const TakeSurvey = () => {
       // Reproducir un sonido suave para indicar que está listo para escuchar
       try {
         const beep = new Audio('/assets/sounds/listen-beep.mp3');
-        beep.volume = 0.3;
+        beep.volume = 0.9;
         beep.play();
       } catch (error) {
         console.log('No se pudo reproducir el sonido de inicio de escucha');
       }
-    }, 3000); // Pausa considerable antes de empezar a escuchar
+    }, 10000); // Pausa considerable antes de empezar a escuchar
   };
   
   // Enviar todas las respuestas
