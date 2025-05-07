@@ -24,8 +24,8 @@ class AudioService {
     this.permissionCallback = null;
     
     // Configuración mejorada para el reconocimiento de voz
-    this.silenceThreshold = 3000; // Tiempo en ms para considerar silencio
-    this.speakingTimeout = 8000;  // Tiempo en ms para esperar respuesta
+    this.silenceThreshold = 15000; // Tiempo en ms para considerar silencio
+    this.speakingTimeout = 30000;  // Tiempo en ms para esperar respuesta
     this.restartAttempts = 0;     // Contador de intentos de reinicio
     this.maxRestartAttempts = 3;  // Máximo número de reintentos
     this.silenceTimer = null;     // Timer para detectar silencio
@@ -395,7 +395,7 @@ class AudioService {
                 }
               }
             }
-          }, 1500);  // Incrementado a 1.5s para dar más tiempo
+          }, 15000);  // Incrementado a 1.5s para dar más tiempo
         } else {
           console.log('AudioService: Máximo de reintentos alcanzado');
           
@@ -489,7 +489,7 @@ class AudioService {
       const averageVolume = sum / this.audioData.length;
       
       // Umbral de detección de voz (ajustable)
-      const voiceThreshold = 15;
+      const voiceThreshold = 20;
       
       if (averageVolume > voiceThreshold) {
         // Se detectó voz, resetear temporizador de silencio
@@ -778,10 +778,10 @@ class AudioService {
   setSensitivity(options = {}) {
     // Valores predefinidos para diferentes sensibilidades
     const sensitivities = {
-      high: { silenceThreshold: 2000, speakingTimeout: 5000 },
-      medium: { silenceThreshold: 3000, speakingTimeout: 8000 },
-      low: { silenceThreshold: 5000, speakingTimeout: 15000 },
-      veryLow: { silenceThreshold: 8000, speakingTimeout: 30000 }
+      high: { silenceThreshold: 10000, speakingTimeout: 15000 },
+      medium: { silenceThreshold: 10000, speakingTimeout: 45000 },
+      low: { silenceThreshold: 10000, speakingTimeout: 15000 },
+      veryLow: { silenceThreshold: 30000, speakingTimeout: 45000 }
     };
     
     let config = { ...sensitivities.medium };  // Valor por defecto
