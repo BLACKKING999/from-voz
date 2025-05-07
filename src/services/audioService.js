@@ -23,9 +23,15 @@ class AudioService {
     this.permissionGranted = false;
     this.permissionCallback = null;
     
+    // Callbacks
+    this.onResultCallback = null;
+    this.onEndCallback = null;
+    this.onErrorCallback = null;
+    
     // Configuración mejorada para el reconocimiento de voz
-    this.silenceThreshold = 15000; // Tiempo en ms para considerar silencio
-    this.speakingTimeout = 30000;  // Tiempo en ms para esperar respuesta
+    this.silenceThreshold = 2500; // Tiempo en ms para considerar silencio (aumentado para móviles)
+    this.speakingTimeout = 12000;  // Tiempo en ms para esperar respuesta (aumentado para móviles)
+    this.volumeThreshold = 3; // umbral de volumen para considerar que hay voz (reducido para mayor sensibilidad)
     this.restartAttempts = 0;     // Contador de intentos de reinicio
     this.maxRestartAttempts = 3;  // Máximo número de reintentos
     this.silenceTimer = null;     // Timer para detectar silencio
@@ -39,12 +45,38 @@ class AudioService {
   }
   
   /**
+   * Detecta si el usuario está en un dispositivo móvil
+   * @returns {boolean} True si es un dispositivo móvil
+   */
+  isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  }
+  
+  /**
+   * Detecta específicamente si es un dispositivo Android
+   * @returns {boolean} True si es un dispositivo Android
+   */
+  isAndroidDevice() {
+    return /Android/i.test(navigator.userAgent);
+  }
+
+  /**
    * Inicializa el sistema de síntesis y precarga las voces
    */
   initSpeechSystem() {
     // Verificar si la API está disponible
     if (typeof window === 'undefined' || !window.speechSynthesis) {
       return false;
+    }
+    
+    // Aplicar configuración específica para dispositivos móviles
+    if (this.isMobileDevice()) {
+      this.silenceThreshold = 3000; // Dar aún más tiempo en móviles antes de considerar silencio
+      this.speakingTimeout = 15000; // Mayor tiempo máximo de espera en móviles
+      
+      if (this.isAndroidDevice()) {
+        this.volumeThreshold = 2; // Umbral aún más bajo para Android
+      }
     }
   
     // Obtener y cachear las voces disponibles
@@ -251,138 +283,144 @@ class AudioService {
   }
 
   /**
-   * Inicializa el reconocimiento de voz con configuración mejorada
-   * @param {string} language - Idioma para el reconocimiento (por defecto es español)
+   * Inicializa el reconocimiento de voz
+   * @param {string} language - Idioma para el reconocimiento
    */
   init(language = 'es-ES') {
-    if (!this.isSupportedByBrowser()) {
+    // Si ya tenemos una instancia, detenerla primero
+    this.stop();
+    
+    this.recognitionLang = language;
+    this.finalTranscript = '';
+    this.interimTranscript = '';
+    
+    // Crear reconocimiento según disponibilidad en navegador
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      if (this.onErrorCallback) {
+        this.onErrorCallback('API no soportada');
+      }
       return false;
     }
     
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     this.recognition = new SpeechRecognition();
     
-    // Configurar opciones con valores mejorados
-    this.recognition.lang = language;
-    this.recognition.continuous = true;  // Cambiado a true para mantener escuchando
+    // Configurar reconocimiento
+    this.recognition.continuous = true;
     this.recognition.interimResults = true;
-    this.recognition.maxAlternatives = 3; // Obtener múltiples alternativas para mejor precisión
+    this.recognition.lang = language;
     
-    // Configurar eventos
-    this.recognition.onresult = (event) => {
-      // Resetear el temporizador de silencio cuando hay actividad
-      this.resetSilenceTimer();
-      
-      // Procesar resultados de reconocimiento
-      let interimTranscript = '';
+    // Guardar referencia al objeto para usar en las funciones de callback
+    const self = this;
+    
+    // Manejar resultados
+    this.recognition.onresult = function(event) {
+      // Procesar resultados
+      self.interimTranscript = '';
       let finalTranscript = '';
       
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          finalTranscript += transcript;
+          finalTranscript += event.results[i][0].transcript;
         } else {
-          interimTranscript += transcript;
+          self.interimTranscript += event.results[i][0].transcript;
         }
       }
       
-      // Actualizar variables de estado
-      this.interimTranscript = interimTranscript;
-      
       if (finalTranscript) {
-        this.finalTranscript += ' ' + finalTranscript;
-        this.finalTranscript = this.finalTranscript.trim();
+        self.finalTranscript += ' ' + finalTranscript;
+        self.finalTranscript = self.finalTranscript.trim();
       }
       
       // Notificar resultados
-      if (this.onResultCallback) {
-        this.onResultCallback(
-          this.finalTranscript,
+      if (self.onResultCallback) {
+        self.onResultCallback(
+          self.finalTranscript,
           event.results[event.resultIndex].isFinal,
-          this.interimTranscript
+          self.interimTranscript
         );
       }
     };
     
-    this.recognition.onend = () => {
+    this.recognition.onend = function() {
       // Detener análisis de audio si está activo
-      this.stopAudioAnalysis();
+      self.stopAudioAnalysis();
       
       // Si estábamos escuchando activamente y hay un temporizador de silencio,
       // esperamos un poco más antes de considerar que realmente terminó
-      if (this.isListening && this.silenceTimer) {
+      if (self.isListening && self.silenceTimer) {
         // Esperar un poco más antes de considerar realmente finalizado
         setTimeout(() => {
-          this.isListening = false;
+          self.isListening = false;
           
           // Notificar finalización
-          if (this.onEndCallback) {
-            this.onEndCallback(this.finalTranscript);
+          if (self.onEndCallback) {
+            self.onEndCallback(self.finalTranscript);
           }
           
           // Resetear intentos de reinicio
-          this.restartAttempts = 0;
+          self.restartAttempts = 0;
         }, 1000);
       } else {
-        this.isListening = false;
+        self.isListening = false;
         
         // Notificar finalización
-        if (this.onEndCallback) {
-          this.onEndCallback(this.finalTranscript);
+        if (self.onEndCallback) {
+          self.onEndCallback(self.finalTranscript);
         }
         
         // Resetear intentos de reinicio
-        this.restartAttempts = 0;
+        self.restartAttempts = 0;
       }
     };
     
-    this.recognition.onerror = (event) => {
+    this.recognition.onerror = function(event) {
       // No marcar como no escuchando inmediatamente para ciertos errores
       if (event.error !== 'no-speech' && event.error !== 'audio-capture') {
-        this.isListening = false;
+        self.isListening = false;
       }
       
       // Manejo de errores mejorado
       if (event.error === 'no-speech') {
         // Para errores de no-speech, intentamos reiniciar si estamos dentro del límite de intentos
-        if (this.restartAttempts < this.maxRestartAttempts) {
-          this.restartAttempts++;
+        if (self.restartAttempts < self.maxRestartAttempts) {
+          self.restartAttempts++;
           
-          if (this.onErrorCallback) {
-            this.onErrorCallback('waiting');
+          if (self.onErrorCallback) {
+            self.onErrorCallback('waiting');
           }
           
           // Intentar reiniciar tras un breve retraso
           setTimeout(() => {
-            if (!this.isListening) { // Solo si no estamos escuchando activamente
+            if (!self.isListening) { // Solo si no estamos escuchando activamente
               try {
-                this.startRecognition();
+                self.startRecognition();
               } catch (e) {
-                if (this.onErrorCallback) {
-                  this.onErrorCallback('error_restart');
+                if (self.onErrorCallback) {
+                  self.onErrorCallback('error_restart');
                 }
               }
             }
           }, 15000);  // Incrementado a 1.5s para dar más tiempo
         } else {
-          if (this.onErrorCallback) {
-            this.onErrorCallback('max_restarts');
+          if (self.onErrorCallback) {
+            self.onErrorCallback('max_restarts');
           }
         }
-      } else if (this.onErrorCallback) {
+      } else if (self.onErrorCallback) {
         // Para otros errores, enviamos el mensaje original
-        this.onErrorCallback(event.error);
+        self.onErrorCallback(event.error);
       }
     };
     
-    this.recognition.onnomatch = () => {
+    this.recognition.onnomatch = function() {
       // Considerar reiniciar el reconocimiento
-      if (this.restartAttempts < this.maxRestartAttempts) {
-        this.restartAttempts++;
+      if (self.restartAttempts < self.maxRestartAttempts) {
+        self.restartAttempts++;
         
         setTimeout(() => {
           try {
-            this.startRecognition();
+            self.startRecognition();
           } catch (e) {
             // Error silencioso
           }
@@ -390,9 +428,9 @@ class AudioService {
       }
     };
     
-    this.recognition.onaudiostart = () => {
+    this.recognition.onaudiostart = function() {
       // Iniciar análisis de audio si es posible
-      this.setupAudioAnalysis();
+      self.setupAudioAnalysis();
     };
     
     return true;
@@ -477,13 +515,8 @@ class AudioService {
   stopAudioAnalysis() {
     this.stopVolumeMonitoring();
     
-    // Liberar recursos de audio
-    if (this.audioContext && this.audioContext.state !== 'closed') {
-      // No cerramos el contexto para poder reutilizarlo, solo desconectamos
-      if (this.analyser) {
-        this.analyser.disconnect();
-        this.analyser = null;
-      }
+    if (this.analyser) {
+      this.analyser = null;
     }
     
     this.audioData = null;
@@ -744,6 +777,30 @@ class AudioService {
     this.configureTimings(config);
     
     return config;
+  }
+
+  /**
+   * Configura timing específico para distintos dispositivos
+   * @param {Object} config - Configuración de tiempos
+   */
+  setTimingConfig(config) {
+    if (config.silenceThreshold) this.silenceThreshold = config.silenceThreshold;
+    if (config.speakingTimeout) this.speakingTimeout = config.speakingTimeout;
+    if (config.volumeThreshold) this.volumeThreshold = config.volumeThreshold;
+  }
+
+  /**
+   * Activa modo específico para Android y dispositivos móviles
+   * @param {boolean} isActive - Si activar o no el modo móvil
+   */
+  setMobileMode(isActive) {
+    if (isActive) {
+      this.silenceThreshold = 3500; // Tiempo más largo para móviles
+      this.volumeThreshold = 2; // Umbral más bajo para Android
+    } else {
+      this.silenceThreshold = 2500; // Valor por defecto
+      this.volumeThreshold = 3; // Valor por defecto
+    }
   }
 }
 

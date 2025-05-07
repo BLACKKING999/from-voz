@@ -82,6 +82,35 @@ const TakeSurvey = () => {
     };
   }, [surveyId]);
   
+  // Detectar si es un dispositivo móvil, especialmente Android
+  const isMobileDevice = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  };
+  
+  const isAndroidDevice = () => {
+    return /Android/i.test(navigator.userAgent);
+  };
+  
+  // Configurar tiempos específicos para dispositivos móviles
+  useEffect(() => {
+    if (isMobileDevice()) {
+      // Configuración específica para dispositivos móviles
+      const mobileConfig = {
+        silenceThreshold: 3000, // 3 segundos sin hablar para terminar (más tiempo en móviles)
+        speakingTimeout: 15000, // 15 segundos máximo de espera
+        volumeThreshold: isAndroidDevice() ? 2 : 3 // Umbral más bajo para Android (más sensible)
+      };
+      
+      // Aplicar configuración optimizada para móviles
+      audioService.setTimingConfig(mobileConfig);
+      
+      // Si es Android, usar una configuración de reconocimiento más agresiva
+      if (isAndroidDevice()) {
+        audioService.setMobileMode(true);
+      }
+    }
+  }, []);
+  
   // Iniciar la encuesta una vez que está cargada y tenemos permiso del micrófono
   useEffect(() => {
     // Solo iniciar si tenemos encuesta, voz habilitada, permiso, y no hemos iniciado antes
