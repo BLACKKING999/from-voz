@@ -18,20 +18,39 @@ const Dashboard = () => {
       try {
         setLoading(true);
         
-        // Obtener encuestas usando el servicio centralizado
-        const surveysData = await SurveyService.getAllSurveys();
-        console.log("Encuestas cargadas:", surveysData);
-        setSurveys(surveysData);
+        // Obtener todas las encuestas usando el servicio centralizado
+        const allSurveysData = await SurveyService.getAllSurveys();
+        console.log("Todas las encuestas cargadas:", allSurveysData);
         
-        // Obtener respuestas usando el servicio centralizado
+        // Filtrar solo las encuestas del usuario autenticado
+        const userSurveys = allSurveysData.filter(survey => survey.userId === user.uid);
+        console.log(`Encuestas del usuario ${user.uid}:`, userSurveys.length);
+        setSurveys(userSurveys);
+        
+        // Obtener todas las respuestas usando el servicio centralizado
         try {
-          const responsesData = await ResponseService.getAllResponses();
-          console.log("Respuestas cargadas:", responsesData);
-          setResponses(responsesData);
+          const allResponsesData = await ResponseService.getAllResponses();
+          console.log("Todas las respuestas cargadas:", allResponsesData);
           
-          // Cargar el recuento de respuestas para cada encuesta individualmente
+          // Filtrar solo las respuestas de las encuestas del usuario
+          const userSurveyIds = userSurveys.map(survey => survey._id);
+          const userResponses = allResponsesData.filter(response => 
+            userSurveyIds.includes(response.surveyId)
+          );
+          
+          console.log(`Respuestas de encuestas del usuario:`, userResponses.length);
+          setResponses(userResponses);
+          
+          // Cargar el recuento de respuestas para cada encuesta del usuario
           const responseCountsObj = {};
-          for (const survey of surveysData) {
+          
+          // Inicializar contador en cero para todas las encuestas del usuario
+          userSurveys.forEach(survey => {
+            responseCountsObj[survey._id] = 0;
+          });
+          
+          // Cargar datos específicos de cada encuesta
+          for (const survey of userSurveys) {
             try {
               const responseData = await ResponseService.getSurveyResponses(survey._id);
               console.log(`Respuestas para encuesta ${survey._id}:`, responseData);
@@ -69,7 +88,7 @@ const Dashboard = () => {
               responseCountsObj[survey._id] = count;
             } catch (e) {
               console.warn(`Error al cargar respuestas para encuesta ${survey._id}:`, e);
-              responseCountsObj[survey._id] = 0;
+              // El contador ya está inicializado a 0, no es necesario establecerlo de nuevo
             }
           }
           setSurveyResponseCounts(responseCountsObj);

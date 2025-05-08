@@ -9,6 +9,7 @@
     "chart.js": "^4.3.0",
     "compromise": "^14.14.4",
     "firebase": "^9.22.0",
+    "lucide-react": "^0.508.0",
     "playht": "^0.19.1",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.2.0",
@@ -48,4 +49,3 @@
     "postcss": "^8.4.23"
   }
 }
-
