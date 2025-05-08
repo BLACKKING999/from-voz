@@ -26,7 +26,8 @@ const TakeSurvey = () => {
   const [error, setError] = useState(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [responses, setResponses] = useState([]);
-  const [respondentName, setRespondentName] = useState('Anónimo');
+  const [respondentName, setRespondentName] = useState('');
+  const [nameAsked, setNameAsked] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -36,6 +37,7 @@ const TakeSurvey = () => {
   const [conversationMessage, setConversationMessage] = useState('');
   const [micPermission, setMicPermission] = useState('unknown'); // 'unknown', 'granted', 'denied'
   const [status, setStatus] = useState('');
+  const [currentTransitionPhrase, setCurrentTransitionPhrase] = useState('');
   
   // Cargar la encuesta
   useEffect(() => {
@@ -111,27 +113,143 @@ const TakeSurvey = () => {
     }
   }, []);
   
+  // Frases de transición para mostrar aleatoriamente antes de las preguntas
+  const transitionPhrases = [
+    "Bro, aún no acabamos, ¿vas preparado?",
+    "No corras, que esto apenas calienta motores, ja, ja.",
+    "Espera un segundo… todavía hay más cachos por partir, ajajá.",
+    "Tranqui, que la mejor parte viene ahora, jeje.",
+    "No te me vayas, que la fiesta continúa.",
+    "Alto ahí, que falta lo fuerte, ja.",
+    "No cambies de sintonía, que sigue lo bueno.",
+    "Quieto parao, que todavía no acabamos.",
+    "No te me adelantes, que falta el plato principal, je.",
+    "Espera, que lo mejor está por salir.",
+    "Aguanta, que viene la bomba, ajá.",
+    "No pienses que ya, que apenas vamos por la mitad, ja.",
+    "Oye, que aún queda tela para cortar, jijí.",
+    "Tranquilo, que lo interesante está por llegar.",
+    "No te me desconectes, que viene lo jugoso.",
+    "¡Alto! Que aún falta la guinda del pastel, jeje.",
+    "No despistes, que aquí hay más chicha.",
+    "Detente un momento, que la segunda ronda arranca ya.",
+    "No te duermas en los laureles, que sigue la acción.",
+    "Quieto, que viene la pregunta que rompe todo.",
+    "Ni se te ocurra irte, que lo mejor está en camino.",
+    "No cambies la página, que falta el capítulo estelar.",
+    "Espera un toque, que la próxima te va a encantar.",
+    "No te me escondas, que aún hay jugo que exprimir.",
+    "No corras, que esto sube de nivel en un segundo.",
+    "No palidezcas, que la siguiente te dejará pensando.",
+    "Párate ahí, que viene la pregunta bomba.",
+    "No respires tan rápido, que esto se pone intenso.",
+    "No te me pierdas, que queda lo más sabroso.",
+    "No te me adelantes, que la sorpresa está por explotar."
+  ];
+
+  // Función para obtener una frase de transición aleatoria
+  const getRandomTransitionPhrase = () => {
+    const randomIndex = Math.floor(Math.random() * transitionPhrases.length);
+    return transitionPhrases[randomIndex];
+  };
+
   // Iniciar la encuesta una vez que está cargada y tenemos permiso del micrófono
   useEffect(() => {
     // Solo iniciar si tenemos encuesta, voz habilitada, permiso, y no hemos iniciado antes
     if (survey && voiceEnabled && micPermission === 'granted' && !hasInitializedRef.current && !loading) {
       hasInitializedRef.current = true;
       
-      // Dar un mensaje de bienvenida y luego la primera pregunta
+      // Dar un mensaje de bienvenida y preguntar el nombre
       if (survey.welcomeMessage && !hasPlayedWelcomeRef.current) {
         hasPlayedWelcomeRef.current = true;
         speakText(survey.welcomeMessage, () => {
-          // Solo reproducir la primera pregunta después de la bienvenida
-          if (currentQuestionIndex === 0) {
-            speakCurrentQuestion();
-          }
+          // Preguntar el nombre después de la bienvenida
+          askForName();
         });
       } else {
-        // Si no hay mensaje de bienvenida, ir directamente a la primera pregunta
-        speakCurrentQuestion();
+        // Si no hay mensaje de bienvenida, preguntar directamente el nombre
+        askForName();
       }
     }
   }, [survey, voiceEnabled, micPermission, loading]);
+  
+  // Función para preguntar el nombre al usuario
+  const askForName = () => {
+    if (!nameAsked) {
+      setNameAsked(true);
+      speakText('¿Podrías decirme tu nombre, por favor?', () => {
+        listenForName();
+      });
+    } else {
+      // Si ya se preguntó el nombre, continuar con la primera pregunta
+      speakCurrentQuestion();
+    }
+  };
+  
+  // Escuchar el nombre del usuario
+  const listenForName = () => {
+    if (!voiceEnabled) return;
+    
+    audioService.init('es-ES');
+    
+    audioService.onResult((transcript, isFinal) => {
+      setCurrentResponse(transcript);
+      setStatus(isFinal ? 'Procesando...' : 'Escuchando...');
+    });
+    
+    audioService.onEnd((finalTranscript) => {
+      setIsListening(false);
+      setConversationState('processing');
+      setConversationMessage('Procesando nombre...');
+      
+      // Extraer el nombre usando nlpService
+      if (finalTranscript && finalTranscript.trim() !== '') {
+        const extractedName = nlpService.extractName(finalTranscript);
+        if (extractedName && extractedName !== 'Estimado participante') {
+          setRespondentName(extractedName);
+          setCurrentResponse('');
+          speakText(`Gracias, ${extractedName}. Comenzaremos con la primera pregunta.`, () => {
+            speakCurrentQuestion();
+          });
+        } else {
+          setRespondentName('Anónimo');
+          setCurrentResponse('');
+          speakText('No pude entender tu nombre. Te llamaré Anónimo por ahora. Comencemos con la primera pregunta.', () => {
+            speakCurrentQuestion();
+          });
+        }
+      } else {
+        setRespondentName('Anónimo');
+        setCurrentResponse('');
+        speakText('No escuché tu nombre. Te llamaré Anónimo por ahora. Comencemos con la primera pregunta.', () => {
+          speakCurrentQuestion();
+        });
+      }
+    });
+    
+    audioService.onError((errorMessage) => {
+      setIsListening(false);
+      setConversationState('error');
+      setConversationMessage(`Error: ${errorMessage}`);
+      // En caso de error, seguir con el nombre anónimo
+      setRespondentName('Anónimo');
+      speakText('Hubo un problema al captar tu nombre. Te llamaré Anónimo por ahora. Comencemos con la primera pregunta.', () => {
+        speakCurrentQuestion();
+      });
+    });
+    
+    try {
+      audioService.start();
+      setIsListening(true);
+      setConversationState('listening');
+      setConversationMessage('Escuchando tu nombre...');
+    } catch (error) {
+      setRespondentName('Anónimo');
+      speakText('No pude activar el micrófono. Te llamaré Anónimo por ahora. Comencemos con la primera pregunta.', () => {
+        speakCurrentQuestion();
+      });
+    }
+  };
   
   // Solicitar permiso del micrófono
   const requestMicrophonePermission = async () => {
@@ -347,26 +465,56 @@ const TakeSurvey = () => {
       setCurrentQuestionIndex(nextIndex);
       setCurrentResponse(responses[nextIndex] || '');
       
-      // Esperamos a que React actualice el estado y luego leemos la nueva pregunta
-      setTimeout(() => {
-        if (voiceEnabled) {
-          // Obtener directamente la pregunta del array para asegurarnos de leer la correcta
-          const nextQuestion = survey.questions[nextIndex];
-          if (nextQuestion) {
-            let questionText = `Pregunta ${nextIndex + 1}: ${nextQuestion.text}`;
-            
-            // Agregar información sobre opciones si es pregunta de opción múltiple
-            if (nextQuestion.type === 'multiple_choice' && nextQuestion.options) {
-              questionText += '. Las opciones son: ';
-              questionText += nextQuestion.options.map((option, idx) => 
-                `Opción ${idx + 1}: ${option}`
-              ).join(', ');
-            }
-            
-            speakText(questionText, null);
+      // Si es la segunda pregunta o posterior, seleccionamos una frase de transición aleatoria
+      if (nextIndex >= 1) {
+        const randomPhrase = getRandomTransitionPhrase();
+        setCurrentTransitionPhrase(randomPhrase);
+        
+        // Esperamos a que React actualice el estado y luego leemos la nueva pregunta con la frase de transición
+        setTimeout(() => {
+          if (voiceEnabled) {
+            // Primero decimos la frase de transición y luego la pregunta
+            speakText(randomPhrase, () => {
+              // Obtener directamente la pregunta del array para asegurarnos de leer la correcta
+              const nextQuestion = survey.questions[nextIndex];
+              if (nextQuestion) {
+                let questionText = `Pregunta ${nextIndex + 1}: ${nextQuestion.text}`;
+                
+                // Agregar información sobre opciones si es pregunta de opción múltiple
+                if (nextQuestion.type === 'multiple_choice' && nextQuestion.options) {
+                  questionText += '. Las opciones son: ';
+                  questionText += nextQuestion.options.map((option, idx) => 
+                    `Opción ${idx + 1}: ${option}`
+                  ).join(', ');
+                }
+                
+                speakText(questionText, null);
+              }
+            });
           }
-        }
-      }, 300);
+        }, 300);
+      } else {
+        // Si es la primera pregunta, no mostramos frase de transición
+        setTimeout(() => {
+          if (voiceEnabled) {
+            // Obtener directamente la pregunta del array para asegurarnos de leer la correcta
+            const nextQuestion = survey.questions[nextIndex];
+            if (nextQuestion) {
+              let questionText = `Pregunta ${nextIndex + 1}: ${nextQuestion.text}`;
+              
+              // Agregar información sobre opciones si es pregunta de opción múltiple
+              if (nextQuestion.type === 'multiple_choice' && nextQuestion.options) {
+                questionText += '. Las opciones son: ';
+                questionText += nextQuestion.options.map((option, idx) => 
+                  `Opción ${idx + 1}: ${option}`
+                ).join(', ');
+              }
+              
+              speakText(questionText, null);
+            }
+          }
+        }, 300);
+      }
       
     } else {
       // Si es la última pregunta, mostrar confirmación
@@ -473,6 +621,7 @@ const TakeSurvey = () => {
           // Utilizar el servicio NLP para analizar respuesta
           const result = nlpService.analyzeIntent(finalTranscript.toLowerCase());
           
+          // Usar el resultado del análisis NLP para determinar la intención
           // Comprobar si la intención es afirmativa
           const isAffirmative = result.intent === 'afirmacion' || 
                             finalTranscript.toLowerCase().includes('sí') || 
@@ -618,6 +767,7 @@ const TakeSurvey = () => {
       <div className="mb-4 p-3 rounded-lg shadow-sm text-center bg-gray-100">
         <h2 className="text-lg font-bold mb-2">{survey.title}</h2>
         <p className="text-sm mb-3">{survey.description}</p>
+        {respondentName && <p className="text-sm font-semibold">Nombre: {respondentName}</p>}
         
         {/* Controles de voz */}
         <div className="mb-3 flex flex-wrap justify-center gap-2">
@@ -731,6 +881,13 @@ const TakeSurvey = () => {
                   <li key={idx} className="mb-1">{option}</li>
                 ))}
               </ul>
+            </div>
+          )}
+          
+          {/* Mostrar frase de transición si existe y estamos en la pregunta 2 o superior */}
+          {currentQuestionIndex >= 1 && currentTransitionPhrase && (
+            <div className="my-3 p-2 bg-blue-50 border border-blue-200 rounded-md">
+              <p className="text-blue-700 font-medium">{currentTransitionPhrase}</p>
             </div>
           )}
           
