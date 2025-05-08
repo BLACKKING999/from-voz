@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Bar, Pie } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } from 'chart.js';
 import { auth } from '../utils/firebase';
-import { SurveyService } from '../services/apiService';
+import { SurveyService, ResponseService } from '../services/apiService';
 
 // Register Chart.js components
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
@@ -13,6 +13,7 @@ const SurveyDetail = () => {
   const navigate = useNavigate();
   const [survey, setSurvey] = useState(null);
   const [responses, setResponses] = useState([]);
+  const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('results');
@@ -29,15 +30,87 @@ const SurveyDetail = () => {
         // Usar el servicio centralizado para obtener la encuesta
         const data = await SurveyService.getSurvey(surveyId);
         
+        console.log('Encuesta cargada:', data);
+        
         if (data) {
           setSurvey(data);
-          setResponses(data.responses || []);
+          
+          // Verificar si hay respuestas directamente en el objeto
+          if (data.responses && Array.isArray(data.responses)) {
+            console.log('Respuestas encontradas en data.responses:', data.responses.length);
+            setResponses(data.responses);
+          } else {
+            // Si no hay respuestas en data.responses, intentar cargarlas independientemente
+            try {
+              // Obtener respuestas usando el servicio centralizado
+              try {
+                const responseData = await ResponseService.getSurveyResponses(surveyId);
+                console.log("Datos completos del API:", responseData);
+                
+                // Verificar el formato de la respuesta del API
+                if (responseData && typeof responseData === 'object') {
+                  // Si la respuesta es un objeto con la estructura {responses, analysis, survey}
+                  if (responseData.responses && Array.isArray(responseData.responses)) {
+                    console.log(`Se encontraron ${responseData.responses.length} respuestas en responseData.responses`);
+                    setResponses(responseData.responses);
+                    
+                    // Guardamos el análisis si está disponible
+                    if (responseData.analysis) {
+                      console.log('Análisis disponible:', responseData.analysis);
+                      setAnalysis(responseData.analysis);
+                    }
+                    
+                    // Si hay una propiedad survey, podríamos usar esa información también
+                    if (responseData.survey && !survey) {
+                      console.log('Usando datos de survey desde la respuesta');
+                      setSurvey(responseData.survey);
+                    }
+                  } 
+                  // Si es algún otro tipo de objeto, verificar si tiene un array de items o data
+                  else if (responseData.items && Array.isArray(responseData.items)) {
+                    console.log(`Se encontraron ${responseData.items.length} respuestas en responseData.items`);
+                    setResponses(responseData.items);
+                  }
+                  else if (responseData.data && Array.isArray(responseData.data)) {
+                    console.log(`Se encontraron ${responseData.data.length} respuestas en responseData.data`);
+                    setResponses(responseData.data);
+                  }
+                  // Si el objeto mismo es un array (aunque eso sería raro en este formato)
+                  else if (Array.isArray(responseData)) {
+                    console.log(`Se encontraron ${responseData.length} respuestas (formato array directo)`);
+                    setResponses(responseData);
+                  } 
+                  // Si es algún otro tipo de objeto que no podemos procesar
+                  else {
+                    console.warn('Formato de respuesta inesperado', responseData);
+                    setResponses([]);
+                  }
+                } else if (Array.isArray(responseData)) {
+                  // Si directamente es un array
+                  console.log(`Se encontraron ${responseData.length} respuestas (formato array)`);
+                  setResponses(responseData);
+                } else {
+                  console.warn('No se pudieron cargar las respuestas o formato inesperado', responseData);
+                  setResponses([]);
+                }
+              } catch (responseError) {
+                console.error('Error al cargar respuestas:', responseError);
+                setResponses([]);
+              }
+              
+              setLoading(false);
+            } catch (error) {
+              console.error('Error al cargar respuestas:', error);
+              setResponses([]);
+            }
+          }
         } else {
           setError('No se pudo cargar la encuesta');
         }
         
         setLoading(false);
       } catch (error) {
+        console.error('Error al cargar la encuesta:', error);
         setError('Error al cargar la encuesta: ' + (error.message || 'Error desconocido'));
         setLoading(false);
       }
@@ -139,20 +212,32 @@ const SurveyDetail = () => {
   const getQuestionResponses = (questionId) => {
     // Verificar que responses es un array
     if (!Array.isArray(responses)) {
+      console.warn('responses no es un array:', responses);
       return [];
     }
     
     // Filtramos las respuestas que corresponden a esta pregunta
-    return responses
-      .filter(response => response && response.answers)
+    const result = responses
+      .filter(response => response && response.answers && Array.isArray(response.answers))
       .flatMap(response => {
         try {
-          const answer = response.answers.find(a => a && a.questionId === questionId);
-          return answer ? [{ value: answer.value }] : [];
+          // Buscar respuestas para esta pregunta
+          const answers = response.answers.filter(a => a && a.questionId === questionId);
+          
+          // Mapear a un formato estándar
+          return answers.map(answer => ({
+            value: answer.value,
+            respondentName: response.respondentName || 'Anónimo',
+            createdAt: response.createdAt
+          }));
         } catch (error) {
+          console.error('Error procesando respuesta:', error);
           return [];
         }
       });
+    
+    console.log(`Respuestas para pregunta ${questionId}:`, result);
+    return result;
   };
 
   // Eliminar encuesta
@@ -170,6 +255,56 @@ const SurveyDetail = () => {
       navigate('/dashboard');
     } catch (error) {
       setError('Error al eliminar la encuesta: ' + (error.message || 'Error desconocido'));
+      setLoading(false);
+    }
+  };
+  
+  // Cambiar estado activo/inactivo
+  const toggleActive = async () => {
+    try {
+      setLoading(true);
+      
+      // Actualizar el estado en el servidor
+      const updatedSurvey = await SurveyService.updateSurvey(surveyId, {
+        ...survey,
+        isActive: !survey.isActive
+      });
+      
+      // Actualizar estado local
+      setSurvey(updatedSurvey);
+      
+      // Mostrar mensaje de éxito
+      alert(`Encuesta ${updatedSurvey.isActive ? 'activada' : 'desactivada'} correctamente`);
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error al cambiar el estado de la encuesta:', error);
+      setError('Error al actualizar la encuesta: ' + (error.message || 'Error desconocido'));
+      setLoading(false);
+    }
+  };
+  
+  // Cambiar estado público/privado
+  const togglePublic = async () => {
+    try {
+      setLoading(true);
+      
+      // Actualizar el estado en el servidor
+      const updatedSurvey = await SurveyService.updateSurvey(surveyId, {
+        ...survey,
+        isPublic: !survey.isPublic
+      });
+      
+      // Actualizar estado local
+      setSurvey(updatedSurvey);
+      
+      // Mostrar mensaje de éxito
+      alert(`Encuesta ahora es ${updatedSurvey.isPublic ? 'pública' : 'privada'}`);
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error al cambiar la visibilidad de la encuesta:', error);
+      setError('Error al actualizar la encuesta: ' + (error.message || 'Error desconocido'));
       setLoading(false);
     }
   };
@@ -228,7 +363,7 @@ const SurveyDetail = () => {
           <h1 className="text-2xl font-bold">{survey.title}</h1>
           <p className="text-gray-600">Creada: {formatDate(survey.createdAt)}</p>
         </div>
-        <div className="mt-4 md:mt-0 flex space-x-2">
+        <div className="mt-4 md:mt-0 flex flex-wrap gap-2">
           <Link 
             to={`/take-survey/${survey._id}`} 
             className="btn btn-primary"
@@ -236,12 +371,62 @@ const SurveyDetail = () => {
           >
             Ver Encuesta
           </Link>
+          
+          {/* Botón para activar/desactivar encuesta */}
+          <button 
+            onClick={toggleActive}
+            className={`btn ${survey.isActive ? 'btn-success' : 'btn-warning'}`}
+          >
+            {survey.isActive ? (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Activa
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Inactiva
+              </>
+            )}
+          </button>
+          
+          {/* Botón para cambiar visibilidad pública/privada */}
+          <button 
+            onClick={togglePublic}
+            className={`btn ${survey.isPublic ? 'btn-info' : 'btn-secondary'}`}
+          >
+            {survey.isPublic ? (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Pública
+              </>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                </svg>
+                Privada
+              </>
+            )}
+          </button>
+          
           <button 
             onClick={handleDelete}
             className="btn btn-danger"
           >
-            Eliminar Encuesta
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Eliminar
           </button>
+          
           <button className="btn btn-outline">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
@@ -327,16 +512,22 @@ const SurveyDetail = () => {
                 </div>
               </div>
 
-              {responses.length === 0 ? (
+              {!Array.isArray(responses) || responses.length === 0 ? (
                 <div className="text-center py-8 bg-gray-50 rounded-lg">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-400 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
                   <p className="text-gray-600 mb-4">Todavía no hay respuestas para esta encuesta</p>
-                  <div className="flex justify-center">
+                  <div className="flex justify-center space-x-3">
                     <Link to={`/take-survey/${survey._id}`} className="btn btn-primary" target="_blank">
                       Tomar la Encuesta
                     </Link>
+                    <button 
+                      onClick={() => window.location.reload()}
+                      className="btn btn-outline"
+                    >
+                      Actualizar Datos
+                    </button>
                   </div>
                 </div>
               ) : (

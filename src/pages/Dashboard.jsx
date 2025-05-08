@@ -6,6 +6,7 @@ import { SurveyService, ResponseService } from '../services/apiService';
 const Dashboard = () => {
   const [surveys, setSurveys] = useState([]);
   const [responses, setResponses] = useState([]);
+  const [surveyResponseCounts, setSurveyResponseCounts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const user = auth.currentUser;
@@ -27,6 +28,51 @@ const Dashboard = () => {
           const responsesData = await ResponseService.getAllResponses();
           console.log("Respuestas cargadas:", responsesData);
           setResponses(responsesData);
+          
+          // Cargar el recuento de respuestas para cada encuesta individualmente
+          const responseCountsObj = {};
+          for (const survey of surveysData) {
+            try {
+              const responseData = await ResponseService.getSurveyResponses(survey._id);
+              console.log(`Respuestas para encuesta ${survey._id}:`, responseData);
+              
+              // Verificar el formato de la respuesta - puede ser un objeto o un array
+              let count = 0;
+              if (responseData && typeof responseData === 'object') {
+                // Si es un objeto con una propiedad 'responses' que es un array
+                if (responseData.responses && Array.isArray(responseData.responses)) {
+                  count = responseData.responses.length;
+                  console.log(`Se encontraron ${count} respuestas en survey ${survey._id}`);
+                }
+                // Si tiene un analysis con totalResponses
+                else if (responseData.analysis && typeof responseData.analysis.totalResponses === 'number') {
+                  count = responseData.analysis.totalResponses;
+                  console.log(`Total respuestas desde analysis: ${count}`);
+                }
+                // Verificar otras posibles estructuras
+                else if (responseData.items && Array.isArray(responseData.items)) {
+                  count = responseData.items.length;
+                }
+                else if (responseData.data && Array.isArray(responseData.data)) {
+                  count = responseData.data.length;
+                }
+                // Si el objeto mismo es un array
+                else if (Array.isArray(responseData)) {
+                  count = responseData.length;
+                }
+              }
+              // Si directamente es un array
+              else if (Array.isArray(responseData)) {
+                count = responseData.length;
+              }
+              
+              responseCountsObj[survey._id] = count;
+            } catch (e) {
+              console.warn(`Error al cargar respuestas para encuesta ${survey._id}:`, e);
+              responseCountsObj[survey._id] = 0;
+            }
+          }
+          setSurveyResponseCounts(responseCountsObj);
         } catch (responseError) {
           console.warn('No se pudieron cargar las respuestas:', responseError);
           // No mostramos error al usuario ya que esto es secundario
@@ -151,7 +197,7 @@ const Dashboard = () => {
                   <p className="text-sm text-gray-500">Creada: {formatDate(survey.createdAt)}</p>
                 </div>
                 <div className="badge badge-primary">
-                  {survey.responses || 0} respuestas
+                  {surveyResponseCounts[survey._id] || 0} respuestas
                 </div>
               </div>
               

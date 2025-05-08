@@ -38,13 +38,21 @@ const ResponseDetail = () => {
         );
         
         console.log('Respuesta cargada:', responseData.data);
-        setResponse(responseData.data);
+        
+        // Verificar que la respuesta tiene la estructura esperada
+        if (!responseData.data) {
+          throw new Error('La respuesta no contiene datos');
+        }
+        
+        // Validar que tenemos datos válidos antes de actualizar el estado
+        const validResponse = responseData.data;
+        setResponse(validResponse);
         
         // Cargar datos de la encuesta asociada
-        if (responseData.data && responseData.data.surveyId) {
+        if (validResponse.surveyId) {
           try {
             const surveyData = await axios.get(
-              `${process.env.REACT_APP_API_URL || 'https://sistema-de-encuestas-por-voz.onrender.com'}/api/surveys/${responseData.data.surveyId}`,
+              `${process.env.REACT_APP_API_URL || 'https://sistema-de-encuestas-por-voz.onrender.com'}/api/surveys/${validResponse.surveyId}`,
               {
                 headers: {
                   Authorization: `Bearer ${token}`
@@ -52,10 +60,18 @@ const ResponseDetail = () => {
               }
             );
             console.log('Encuesta cargada:', surveyData.data);
-            setSurvey(surveyData.data);
+            
+            if (surveyData.data) {
+              setSurvey(surveyData.data);
+            } else {
+              console.warn('La respuesta de la API de encuesta no contiene datos');
+            }
           } catch (surveyError) {
-            console.warn('No se pudo cargar la encuesta asociada:', surveyError);
+            console.error('No se pudo cargar la encuesta asociada:', surveyError);
+            // No establecemos error global para que al menos se muestren las respuestas
           }
+        } else {
+          console.warn('La respuesta no tiene un surveyId asociado');
         }
         
         setLoading(false);
@@ -65,7 +81,7 @@ const ResponseDetail = () => {
         if (error.response && error.response.status === 404) {
           setError('Respuesta no encontrada. Puede que haya sido eliminada o no tengas acceso.');
         } else {
-          setError('Error al cargar los datos de la respuesta. Por favor, intenta de nuevo más tarde.');
+          setError('Error al cargar los datos de la respuesta: ' + (error.message || 'Error desconocido'));
         }
         
         setLoading(false);
@@ -83,17 +99,21 @@ const ResponseDetail = () => {
 
   // Obtener la pregunta correspondiente a un ID
   const getQuestionText = (questionId) => {
-    if (!survey || !survey.questions) return 'Pregunta no disponible';
+    if (!survey || !survey.questions || !Array.isArray(survey.questions)) {
+      return 'Pregunta no disponible';
+    }
     
-    const question = survey.questions.find(q => q._id === questionId);
+    const question = survey.questions.find(q => q && q._id === questionId);
     return question ? question.text : 'Pregunta no disponible';
   };
 
   // Obtener el tipo de pregunta
   const getQuestionType = (questionId) => {
-    if (!survey || !survey.questions) return null;
+    if (!survey || !survey.questions || !Array.isArray(survey.questions)) {
+      return null;
+    }
     
-    const question = survey.questions.find(q => q._id === questionId);
+    const question = survey.questions.find(q => q && q._id === questionId);
     return question ? question.type : null;
   };
 
@@ -188,47 +208,61 @@ const ResponseDetail = () => {
 
           <h2 className="text-xl font-semibold mb-4">Respuestas</h2>
           
-          {response.answers && response.answers.length > 0 ? (
+          {response && response.answers && Array.isArray(response.answers) && response.answers.length > 0 ? (
             <div className="space-y-4">
-              {response.answers.map((answer, index) => (
-                <div key={index} className="border rounded-lg p-4">
-                  <div className="text-sm text-gray-500">Pregunta {index + 1}</div>
-                  <div className="font-medium mb-2">{getQuestionText(answer.questionId)}</div>
-                  
-                  <div className="flex items-start">
-                    <div className="text-sm text-gray-500 mr-2">Respuesta:</div>
-                    <div className="font-medium">
-                      {getQuestionType(answer.questionId) === 'rating' ? (
-                        <div className="flex">
-                          {[...Array(5)].map((_, i) => (
-                            <svg 
-                              key={i} 
-                              className={`h-5 w-5 ${i < parseInt(answer.value) ? 'text-yellow-400' : 'text-gray-300'}`} 
-                              xmlns="http://www.w3.org/2000/svg" 
-                              viewBox="0 0 20 20" 
-                              fill="currentColor"
-                            >
-                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118l-2.8-2.034c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
-                            </svg>
-                          ))}
-                        </div>
-                      ) : getQuestionType(answer.questionId) === 'yesno' ? (
-                        <span className={`px-2 py-1 rounded ${answer.value.toLowerCase() === 'sí' || answer.value.toLowerCase() === 'si' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                          {answer.value}
-                        </span>
-                      ) : (
-                        <div className="bg-gray-50 p-3 rounded">
-                          "{answer.value}"
-                        </div>
-                      )}
+              {response.answers.map((answer, index) => {
+                // Validar que la respuesta tiene la estructura esperada
+                if (!answer || !answer.questionId) {
+                  return (
+                    <div key={index} className="border rounded-lg p-4 bg-red-50">
+                      <div className="text-sm text-red-500">Respuesta {index + 1} (datos incompletos)</div>
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div key={index} className="border rounded-lg p-4">
+                    <div className="text-sm text-gray-500">Pregunta {index + 1}</div>
+                    <div className="font-medium mb-2">{getQuestionText(answer.questionId)}</div>
+                    
+                    <div className="flex items-start">
+                      <div className="text-sm text-gray-500 mr-2">Respuesta:</div>
+                      <div className="font-medium">
+                        {getQuestionType(answer.questionId) === 'rating' && answer.value ? (
+                          <div className="flex">
+                            {[...Array(5)].map((_, i) => (
+                              <svg 
+                                key={i} 
+                                className={`h-5 w-5 ${i < parseInt(answer.value) ? 'text-yellow-400' : 'text-gray-300'}`} 
+                                xmlns="http://www.w3.org/2000/svg" 
+                                viewBox="0 0 20 20" 
+                                fill="currentColor"
+                              >
+                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118l-2.8-2.034c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" />
+                              </svg>
+                            ))}
+                          </div>
+                        ) : getQuestionType(answer.questionId) === 'yesno' && answer.value ? (
+                          <span className={`px-2 py-1 rounded ${answer.value.toLowerCase() === 'sí' || answer.value.toLowerCase() === 'si' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                            {answer.value}
+                          </span>
+                        ) : (
+                          <div className="bg-gray-50 p-3 rounded">
+                            "{answer.value || 'Sin respuesta'}"
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-6 bg-gray-50 rounded-lg">
               <p className="text-gray-600">No hay respuestas disponibles</p>
+              {response && JSON.stringify(response) === '{}' && (
+                <p className="text-gray-500 mt-2 text-sm">La respuesta no contiene datos. Esto puede deberse a un problema en la conexión con el servidor.</p>
+              )}
             </div>
           )}
         </div>

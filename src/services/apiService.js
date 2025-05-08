@@ -152,6 +152,9 @@ export const SurveyService = {
   // Obtener una encuesta pública específica
   getPublicSurvey: (id) => get(API_ROUTES.PUBLIC_SURVEY_DETAIL(id), {}, false),
   
+  // Obtener respuestas de una encuesta específica
+  getSurveyResponses: (id) => get(`/responses/survey/${id}`),
+  
   // Crear una nueva encuesta
   createSurvey: (surveyData) => post(API_ROUTES.SURVEYS, surveyData),
   
@@ -168,6 +171,9 @@ export const ResponseService = {
   
   // Obtener una respuesta específica
   getResponse: (id) => get(API_ROUTES.RESPONSE_DETAIL(id)),
+  
+  // Obtener respuestas para una encuesta específica
+  getSurveyResponses: (surveyId) => get(`/responses/survey/${surveyId}`),
   
   // Enviar una nueva respuesta (no requiere autenticación)
   submitResponse: (responseData) => post(API_ROUTES.RESPONSES, responseData, false)
