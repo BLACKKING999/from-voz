@@ -29,7 +29,7 @@ const ResponseDetail = () => {
         
         // Obtener datos de la respuesta
         const responseData = await axios.get(
-          `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/responses/${responseId}`,
+          `${process.env.REACT_APP_API_URL || 'https://sistema-de-encuestas-por-voz.onrender.com'}/api/responses/${responseId}`,
           {
             headers: {
               Authorization: `Bearer ${token}`
@@ -44,7 +44,7 @@ const ResponseDetail = () => {
         if (responseData.data && responseData.data.surveyId) {
           try {
             const surveyData = await axios.get(
-              `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/surveys/${responseData.data.surveyId}`,
+              `${process.env.REACT_APP_API_URL || 'https://sistema-de-encuestas-por-voz.onrender.com'}/api/surveys/${responseData.data.surveyId}`,
               {
                 headers: {
                   Authorization: `Bearer ${token}`

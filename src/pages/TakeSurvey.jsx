@@ -38,6 +38,8 @@ const TakeSurvey = () => {
   const [micPermission, setMicPermission] = useState('unknown'); // 'unknown', 'granted', 'denied'
   const [status, setStatus] = useState('');
   const [currentTransitionPhrase, setCurrentTransitionPhrase] = useState('');
+  const [currentFarewellPhrase, setCurrentFarewellPhrase] = useState("");
+
   
   // Cargar la encuesta
   useEffect(() => {
@@ -715,9 +717,51 @@ const TakeSurvey = () => {
       // Enviar respuesta a la API
       await ResponseService.submitResponse(responseData);
       
+      // Lista de frases de despedida
+const farewellPhrases = [
+  "Bueno, hasta aquí llegamos, ¡gracias por participar!",
+  "Eso es todo por hoy, nos vemos en la próxima.",
+  "Listo, cerramos con broche de oro. ¡Chau!",
+  "Se acabó la función, ¡hasta luego!",
+  "Y así concluye, ¡cuídense mucho!",
+  "Nos leemos pronto, ¡un abrazo!",
+  "Hasta aquí nuestro rato, ¡feliz día!",
+  "Cerramos por hoy, ¡hasta la próxima!",
+  "Me despido, ¡que les vaya genial!",
+  "Listo, esto fue todo. ¡Adiós!",
+  "Terminamos, ¡gracias y hasta luego!",
+  "Bueno, esto es todo. ¡Nos vemos!",
+  "Con esto cerramos, ¡hasta pronto!",
+  "Gracias por acompañar, ¡hasta la próxima!",
+  "Así concluye el show, ¡adiós!",
+  "Nos vemos en la siguiente, ¡cuídense!",
+  "Cerramos transmisión, ¡hasta luego!",
+  "Eso fue todo, ¡gracias y chau!",
+  "Se terminó el episodio, ¡nos vemos!",
+  "Hasta aquí llegamos, ¡buenas vibras!",
+  "Listo, desconectando… ¡hasta pronto!",
+  "Me despido ya, ¡éxitos!",
+  "Cierro esto, ¡un saludo a todos!",
+  "Eso es todo, ¡nos vemos pronto!",
+  "Fin de la charla, ¡gracias!",
+  "Hasta la próxima ronda, ¡adiós!",
+  "Cerramos aquí, ¡buenas!",
+  "Chau chau, ¡hasta luego!",
+  "Listo, ¡nos vemos en la próxima!"
+];
+// Función para obtener una frase de despedida aleatoria
+const getRandomFarewellPhrase = () => {
+  const randomIndex = Math.floor(Math.random() * farewellPhrases.length);
+  return farewellPhrases[randomIndex];
+};
+
+const randomFarewell = getRandomFarewellPhrase();
+setCurrentFarewellPhrase(randomFarewell);
+
+
       // Mensaje de despedida
       if (voiceEnabled) {
-        speakText(survey.farewell || '¡Gracias por completar la encuesta!', () => {
+        speakText(randomFarewell, () => {
           // Redirigir a página de agradecimiento
           navigate(`/thank-you`, { 
             state: { 
