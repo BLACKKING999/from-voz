@@ -6,7 +6,7 @@
 export const API_BASE_URL = 'https://sistema-de-encuestas-por-voz.onrender.com';
 
 // Tiempo de espera para las peticiones (en milisegundos)
-export const API_TIMEOUT = 15000;
+export const API_TIMEOUT = 10000;
 
 // Prefijo para todas las rutas de la API
 export const API_PREFIX = '/api';

@@ -166,64 +166,67 @@ const TakeSurvey = () => {
 
   // Iniciar la encuesta una vez que está cargada y tenemos permiso del micrófono
   // Función para hablar el texto usando el servicio de audio
-  const speakText = useCallback((text, onEndCallback) => {
-    if (!voiceEnabled) {
-      if (onEndCallback) onEndCallback()
-      return
-    }
+  const speakText = useCallback(
+    (text, onEndCallback) => {
+      if (!voiceEnabled) {
+        if (onEndCallback) onEndCallback()
+        return
+      }
 
-    // Cancela cualquier síntesis en curso y limpia los timeouts anteriores
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel()
-    }
+      // Cancela cualquier síntesis en curso y limpia los timeouts anteriores
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel()
+      }
 
-    if (speakTimeoutRef.current) {
-      clearTimeout(speakTimeoutRef.current)
-      speakTimeoutRef.current = null
-    }
+      if (speakTimeoutRef.current) {
+        clearTimeout(speakTimeoutRef.current)
+        speakTimeoutRef.current = null
+      }
 
-    // Detener cualquier reconocimiento en curso para evitar conflictos
-    audioService.stop()
-    setIsListening(false)
+      // Detener cualquier reconocimiento en curso para evitar conflictos
+      audioService.stop()
+      setIsListening(false)
 
-    // Pequeña pausa antes de hablar
-    speakTimeoutRef.current = setTimeout(() => {
-      setConversationState("speaking")
-      setConversationMessage("Hablando: " + text.substring(0, 30) + (text.length > 30 ? "..." : ""))
+      // Pequeña pausa antes de hablar
+      speakTimeoutRef.current = setTimeout(() => {
+        setConversationState("speaking")
+        setConversationMessage("Hablando: " + text.substring(0, 30) + (text.length > 30 ? "..." : ""))
 
-      audioService.speakText(
-        text,
-        () => {
-          if (text.includes("Pregunta")) {
-            questionSpeakingRef.current = true
-          }
-        },
-        () => {
-          setConversationState("idle")
+        audioService.speakText(
+          text,
+          () => {
+            if (text.includes("Pregunta")) {
+              questionSpeakingRef.current = true
+            }
+          },
+          () => {
+            setConversationState("idle")
 
-          // Marcar que ya no está hablando la pregunta
-          if (questionSpeakingRef.current) {
-            questionSpeakingRef.current = false
-          }
+            // Marcar que ya no está hablando la pregunta
+            if (questionSpeakingRef.current) {
+              questionSpeakingRef.current = false
+            }
 
-          // Llamar al callback después de hablar, si existe
-          if (onEndCallback) {
-            onEndCallback()
-          }
-        },
-        (error) => {
-          setConversationState("error")
-          setConversationMessage(`Error: ${error}`)
+            // Llamar al callback después de hablar, si existe
+            if (onEndCallback) {
+              onEndCallback()
+            }
+          },
+          (error) => {
+            setConversationState("error")
+            setConversationMessage(`Error: ${error}`)
 
-          // En caso de error, intentar continuar
-          if (onEndCallback) {
-            onEndCallback()
-          }
-        },
-      )
-    }, 300)
-  }, [voiceEnabled])
-  
+            // En caso de error, intentar continuar
+            if (onEndCallback) {
+              onEndCallback()
+            }
+          },
+        )
+      }, 300)
+    },
+    [voiceEnabled],
+  )
+
   // Escuchar el nombre del usuario
   const listenForName = useCallback(() => {
     if (!voiceEnabled) return
@@ -1038,114 +1041,440 @@ const TakeSurvey = () => {
   const currentQuestion = survey.questions[currentQuestionIndex]
 
   return (
-    <div className="max-w-3xl mx-auto p-4">
-      {/* Estado de la conversación - Simplificado */}
-      <div className="mb-4 p-3 rounded-lg shadow-sm text-center bg-gray-100">
-        <h2 className="text-lg font-bold mb-2">{survey.title}</h2>
-        <p className="text-sm mb-3">{survey.description}</p>
-        {respondentName && <p className="text-sm font-semibold">Nombre: {respondentName}</p>}
+    <div className="max-w-3xl mx-auto p-4 relative">
+      {/* Elementos decorativos */}
+      <div className="absolute -top-16 -left-16 w-32 h-32 bg-red-800 rounded-full opacity-20"></div>
+      <div className="absolute -bottom-16 -right-16 w-32 h-32 bg-red-800 rounded-full opacity-20"></div>
 
-        {/* Controles de voz */}
-        <div className="mb-3 flex flex-wrap justify-center gap-2">
+      {/* Barra superior decorativa */}
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-white to-red-500"></div>
+
+      {/* Estado de la conversación - Estilizado */}
+      <div className="mb-6 p-5 rounded-lg shadow-md text-center bg-white border border-red-100 relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-white to-red-500"></div>
+
+        <h2 className="text-xl font-bold mb-3 text-red-900">{survey.title}</h2>
+        <p className="text-sm mb-4 text-gray-700">{survey.description}</p>
+
+        {respondentName && (
+          <div className="mb-3 bg-red-50 py-2 px-4 rounded-md inline-block">
+            <p className="text-sm font-semibold text-red-800">
+              <span className="mr-2">👤</span>
+              {respondentName}
+            </p>
+          </div>
+        )}
+
+        {/* Controles de voz - Estilizados */}
+        <div className="mb-4 flex flex-wrap justify-center gap-3">
           {micPermission === "unknown" ? (
-            <button onClick={requestMicrophonePermission} className="px-4 py-2 bg-blue-600 text-white rounded-md">
-              Permitir micrófono para continuar
+            <button
+              onClick={requestMicrophonePermission}
+              className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-800 text-white rounded-md shadow-md hover:from-red-700 hover:to-red-900 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+            >
+              <span className="flex items-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5 mr-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                  />
+                </svg>
+                Permitir micrófono para continuar
+              </span>
             </button>
           ) : micPermission === "denied" ? (
-            <p className="text-red-600 mb-2">Se necesita acceso al micrófono para usar la función de voz.</p>
+            <p className="text-red-600 mb-2 bg-red-50 p-2 rounded-md border border-red-200">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5 inline mr-1"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
+              </svg>
+              Se necesita acceso al micrófono para usar la función de voz.
+            </p>
           ) : (
             <>
               <button
                 onClick={isListening ? stopListening : startListening}
-                className={`px-4 py-2 ${isListening ? "bg-red-600" : "bg-blue-600"} text-white rounded-md`}
+                className={`px-4 py-2 ${
+                  isListening
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-gradient-to-r from-red-600 to-red-800 hover:from-red-700 hover:to-red-900"
+                } text-white rounded-md shadow-md transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 disabled:opacity-70`}
                 disabled={conversationState === "speaking"}
               >
-                {isListening ? "Detener escucha" : "Registrar respuesta"}
+                <span className="flex items-center">
+                  {isListening ? (
+                    <>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5 mr-2 animate-pulse"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                        />
+                      </svg>
+                      Detener escucha
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5 mr-2"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                        />
+                      </svg>
+                      Registrar respuesta
+                    </>
+                  )}
+                </span>
               </button>
               <button
                 onClick={() => setVoiceEnabled(!voiceEnabled)}
-                className={`px-4 py-2 ${voiceEnabled ? "bg-gray-700" : "bg-gray-400"} text-white rounded-md`}
+                className={`px-4 py-2 ${
+                  voiceEnabled ? "bg-red-800 hover:bg-red-900" : "bg-gray-400 hover:bg-gray-500"
+                } text-white rounded-md shadow-md transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50`}
               >
-                {voiceEnabled ? "Desactivar voz" : "Activar voz"}
+                <span className="flex items-center">
+                  {voiceEnabled ? (
+                    <>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5 mr-2"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                          clipRule="evenodd"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"
+                        />
+                      </svg>
+                      Desactivar voz
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5 mr-2"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                        />
+                      </svg>
+                      Activar voz
+                    </>
+                  )}
+                </span>
               </button>
             </>
           )}
         </div>
 
-        <p className="font-semibold">
-          {!nameCollectionComplete
-            ? "Recolección de datos"
-            : showConfirmation
-              ? "Confirmación de respuestas"
-              : `Pregunta ${currentQuestionIndex + 1} de ${survey.questions.length}`}
-        </p>
+        <div className="flex justify-center items-center">
+          <div className="h-1 bg-red-200 flex-grow max-w-xs rounded-full"></div>
+          <p className="font-semibold mx-3 text-red-900">
+            {!nameCollectionComplete
+              ? "Recolección de datos"
+              : showConfirmation
+                ? "Confirmación de respuestas"
+                : `Pregunta ${currentQuestionIndex + 1} de ${survey.questions.length}`}
+          </p>
+          <div className="h-1 bg-red-200 flex-grow max-w-xs rounded-full"></div>
+        </div>
 
-        {conversationState !== "idle" && <p className="mt-2 text-blue-700">{conversationMessage}</p>}
+        {conversationState !== "idle" && (
+          <div className="mt-3 py-2 px-4 bg-red-50 text-red-800 rounded-md border border-red-100 inline-block animate-pulse">
+            <p className="flex items-center">
+              {conversationState === "speaking" && (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4 mr-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+                  />
+                </svg>
+              )}
+              {conversationState === "listening" && (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4 mr-2 animate-pulse"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                  />
+                </svg>
+              )}
+              {conversationState === "processing" && (
+                <svg
+                  className="animate-spin h-4 w-4 mr-2"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+              )}
+              {conversationState === "error" && (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4 mr-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              )}
+              {conversationMessage}
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Contenido principal (Nombre, Pregunta o Confirmación) */}
+      {/* Contenido principal (Nombre, Pregunta o Confirmación) - Estilizado */}
       {!nameCollectionComplete ? (
-        <div className="bg-white rounded-lg shadow p-4 mb-4">
-          <h3 className="text-xl font-bold mb-3">¿Cuál es tu nombre?</h3>
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6 border border-red-100 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-white to-red-500"></div>
 
-          {/* Respuesta actual */}
+          <div className="flex justify-center mb-4">
+            <div className="w-16 h-16 rounded-full bg-red-900 flex items-center justify-center shadow-md">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-8 w-8 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
+              </svg>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-bold mb-4 text-red-900 text-center">¿Cuál es tu nombre?</h3>
+
+          {/* Respuesta actual - Estilizada */}
           <div
-            className={`mt-3 p-3 ${isListening ? "bg-green-50 border border-green-200 animate-pulse" : "bg-gray-50 border border-gray-200"} rounded-md`}
+            className={`mt-4 p-4 ${
+              isListening ? "bg-red-50 border border-red-200 animate-pulse" : "bg-gray-50 border border-gray-200"
+            } rounded-md shadow-inner`}
           >
-            <p className="text-sm font-medium text-gray-700 mb-1">Tu nombre:</p>
-            <p className="min-h-10">
+            <p className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4 mr-2 text-red-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
+              </svg>
+              Tu nombre:
+            </p>
+            <p className="min-h-10 pl-6">
               {isListening ? (
-                <span className="text-green-600">{currentResponse || "Escuchando..."}</span>
+                <span className="text-red-600 font-medium">{currentResponse || "Escuchando..."}</span>
               ) : (
-                respondentName || currentResponse || "(Sin respuesta)"
+                <span className={respondentName ? "text-red-800 font-medium" : "text-gray-500"}>
+                  {respondentName || currentResponse || "(Sin respuesta)"}
+                </span>
               )}
             </p>
           </div>
 
-          {/* Botones para registrar nombre */}
-          <div className="flex justify-between mt-4">
+          {/* Botones para registrar nombre - Estilizados */}
+          <div className="flex justify-between mt-6">
             <div></div> {/* Espacio vacío para mantener la disposición */}
             <button
               onClick={nameCollectionComplete ? startSurveyAfterName : goToNextQuestion}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              className="px-5 py-2 bg-gradient-to-r from-red-600 to-red-800 text-white rounded-md shadow-md hover:from-red-700 hover:to-red-900 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 disabled:opacity-70 flex items-center"
               disabled={isListening || conversationState === "speaking"}
             >
-              Siguiente →
+              Siguiente
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5 ml-2"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
             </button>
           </div>
         </div>
       ) : showConfirmation ? (
-        <div className="bg-white rounded-lg shadow p-4 mb-4">
-          <h3 className="text-xl font-bold mb-3">Resumen de respuestas</h3>
-          <div className="max-h-60 overflow-y-auto mb-3">
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6 border border-red-100 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-white to-red-500"></div>
+
+          <div className="flex justify-center mb-4">
+            <div className="w-16 h-16 rounded-full bg-red-900 flex items-center justify-center shadow-md">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-8 w-8 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                />
+              </svg>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-bold mb-4 text-red-900 text-center">Resumen de respuestas</h3>
+
+          <div className="max-h-60 overflow-y-auto mb-4 bg-red-50 rounded-lg p-4 border border-red-100 shadow-inner">
             {survey.questions.map((question, index) => (
-              <div key={question._id} className="mb-2 pb-2 border-b border-gray-200">
-                <p className="font-medium">
-                  Pregunta {index + 1}: {question.text}
+              <div key={question._id} className="mb-3 pb-3 border-b border-red-200 last:border-b-0">
+                <p className="font-medium text-red-900 flex items-start">
+                  <span className="bg-red-800 text-white rounded-full w-6 h-6 flex items-center justify-center mr-2 flex-shrink-0 text-sm">
+                    {index + 1}
+                  </span>
+                  {question.text}
                 </p>
-                <p className="pl-4">{responses[index] || "(Sin respuesta)"}</p>
+                <p className="pl-8 mt-1 text-gray-700">
+                  {responses[index] ? (
+                    <span className="text-red-800">{responses[index]}</span>
+                  ) : (
+                    <span className="text-gray-500 italic">(Sin respuesta)</span>
+                  )}
+                </p>
               </div>
             ))}
           </div>
 
-          {/* Controles específicos para confirmación */}
-          <div className="mt-4 flex justify-center gap-2">
+          {/* Controles específicos para confirmación - Estilizados */}
+          <div className="mt-5 flex flex-wrap justify-center gap-3">
             {isListening ? (
-              <>
-                <p className="text-center text-green-700 animate-pulse">
+              <div className="w-full text-center">
+                <p className="text-center text-red-700 animate-pulse bg-red-50 p-3 rounded-lg border border-red-100 mb-3">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5 inline mr-2 animate-pulse"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                    />
+                  </svg>
                   Di "confirmar" para enviar o "revisar" para volver
                 </p>
-                <button onClick={stopListening} className="px-3 py-1 bg-red-600 text-white rounded ml-2">
+                <button
+                  onClick={stopListening}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md shadow-md hover:bg-red-700 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+                >
                   Detener escucha
                 </button>
-              </>
+              </div>
             ) : (
               <>
                 <button
                   onClick={listenForConfirmation}
-                  className="px-4 py-2 bg-blue-600 text-white rounded"
+                  className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-800 text-white rounded-md shadow-md hover:from-red-700 hover:to-red-900 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 disabled:opacity-70 flex items-center"
                   disabled={isSubmitting}
                 >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                    />
+                  </svg>
                   Responder por voz
                 </button>
                 <button
@@ -1154,34 +1483,130 @@ const TakeSurvey = () => {
                     setConversationState("reviewing")
                     setConversationMessage("Revisando preguntas...")
                   }}
-                  className="px-4 py-2 bg-gray-200 text-gray-800 rounded"
+                  className="px-4 py-2 bg-white border border-red-300 text-red-700 rounded-md shadow-sm hover:bg-red-50 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 disabled:opacity-70 flex items-center"
                   disabled={isSubmitting}
                 >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z"
+                    />
+                  </svg>
                   Revisar
                 </button>
                 <button
                   onClick={handleSubmit}
-                  className="px-4 py-2 bg-green-600 text-white rounded"
+                  className="px-4 py-2 bg-gradient-to-r from-green-600 to-green-800 text-white rounded-md shadow-md hover:from-green-700 hover:to-green-900 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 disabled:opacity-70 flex items-center"
                   disabled={isSubmitting}
                 >
-                  {isSubmitting ? "Enviando..." : "Confirmar"}
+                  {isSubmitting ? (
+                    <>
+                      <svg
+                        className="animate-spin h-5 w-5 mr-2"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        ></circle>
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        ></path>
+                      </svg>
+                      Enviando...
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-5 w-5 mr-2"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Confirmar
+                    </>
+                  )}
                 </button>
               </>
             )}
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow p-4 mb-4">
-          <h3 className="text-xl font-bold mb-3">{currentQuestion.text}</h3>
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6 border border-red-100 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-white to-red-500"></div>
 
-          {/* Opciones para preguntas de opción múltiple */}
+          <div className="flex justify-center mb-4">
+            <div className="w-16 h-16 rounded-full bg-red-900 flex items-center justify-center shadow-md">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-8 w-8 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+          </div>
+
+          <div className="flex items-center mb-4">
+            <div className="bg-red-800 text-white rounded-full w-8 h-8 flex items-center justify-center mr-3 flex-shrink-0">
+              {currentQuestionIndex + 1}
+            </div>
+            <h3 className="text-xl font-bold text-red-900">{currentQuestion.text}</h3>
+          </div>
+
+          {/* Opciones para preguntas de opción múltiple - Estilizadas */}
           {currentQuestion.type === "multiple_choice" && currentQuestion.options && (
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 mb-1">Opciones:</p>
-              <ul className="list-disc pl-5">
+            <div className="mb-5 bg-red-50 p-4 rounded-lg border border-red-100">
+              <p className="text-sm text-red-800 font-medium mb-2 flex items-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5 mr-2"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                Opciones disponibles:
+              </p>
+              <ul className="space-y-1 pl-7">
                 {currentQuestion.options.map((option, idx) => (
-                  <li key={idx} className="mb-1">
-                    {option}
+                  <li key={idx} className="flex items-start">
+                    <span className="bg-red-700 text-white rounded-full w-5 h-5 flex items-center justify-center mr-2 flex-shrink-0 text-xs">
+                      {idx + 1}
+                    </span>
+                    <span className="text-gray-800">{option}</span>
                   </li>
                 ))}
               </ul>
@@ -1190,40 +1615,117 @@ const TakeSurvey = () => {
 
           {/* Mostrar frase de transición si existe y estamos en la pregunta 2 o superior */}
           {currentQuestionIndex >= 1 && currentTransitionPhrase && (
-            <div className="my-3 p-2 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-blue-700 font-medium">{currentTransitionPhrase}</p>
+            <div className="my-4 p-3 bg-red-50 border border-red-200 rounded-md shadow-inner">
+              <p className="text-red-700 font-medium flex items-center">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5 mr-2 text-red-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                {currentTransitionPhrase}
+              </p>
             </div>
           )}
 
-          {/* Respuesta actual */}
+          {/* Respuesta actual - Estilizada */}
           <div
-            className={`mt-3 p-3 ${isListening ? "bg-green-50 border border-green-200 animate-pulse" : "bg-gray-50 border border-gray-200"} rounded-md`}
+            className={`mt-4 p-4 ${
+              isListening ? "bg-red-50 border border-red-200 animate-pulse" : "bg-gray-50 border border-gray-200"
+            } rounded-md shadow-inner`}
           >
-            <p className="text-sm font-medium text-gray-700 mb-1">Tu respuesta:</p>
-            <p className="min-h-10">
+            <p className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-4 w-4 mr-2 text-red-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                />
+              </svg>
+              Tu respuesta:
+            </p>
+            <p className="min-h-10 pl-6">
               {isListening ? (
-                <span className="text-green-600">{currentResponse || "Escuchando..."}</span>
+                <span className="text-red-600 font-medium">{currentResponse || "Escuchando..."}</span>
               ) : (
-                currentResponse || "(Sin respuesta)"
+                <span className={currentResponse ? "text-red-800 font-medium" : "text-gray-500 italic"}>
+                  {currentResponse || "(Sin respuesta)"}
+                </span>
               )}
             </p>
           </div>
 
-          {/* Botones de navegación */}
-          <div className="flex justify-between mt-4">
+          {/* Botones de navegación - Estilizados */}
+          <div className="flex justify-between mt-6">
             <button
               onClick={goToPreviousQuestion}
               disabled={currentQuestionIndex === 0}
-              className="px-4 py-2 text-gray-700 bg-gray-200 rounded disabled:opacity-50 hover:bg-gray-300"
+              className="px-4 py-2 text-red-700 bg-white border border-red-300 rounded-md shadow-sm disabled:opacity-50 hover:bg-red-50 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 flex items-center"
             >
-              ← Anterior
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5 mr-1"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Anterior
             </button>
-            <button onClick={goToNextQuestion} className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-              {currentQuestionIndex < survey.questions.length - 1 ? "Siguiente →" : "Revisar respuestas"}
+            <button
+              onClick={goToNextQuestion}
+              className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-800 text-white rounded-md shadow-md hover:from-red-700 hover:to-red-900 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 flex items-center"
+            >
+              {currentQuestionIndex < survey.questions.length - 1 ? (
+                <>
+                  Siguiente
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5 ml-1"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </>
+              ) : (
+                <>
+                  Revisar respuestas
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5 ml-1"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                    />
+                  </svg>
+                </>
+              )}
             </button>
           </div>
         </div>
       )}
+
+      {/* Barra inferior decorativa */}
+      <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-white to-red-500"></div>
     </div>
   )
 }
