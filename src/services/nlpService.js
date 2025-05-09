@@ -8,18 +8,30 @@ import nlp from "compromise"
 
 // Nota: No se importa el plugin para español porque no se encuentra disponible en la versión actual
 
-// Optimize the normalizeText function to be more efficient
+// Optimizar la función normalizeText para mejor rendimiento y compatibilidad
 function normalizeText(text) {
   if (!text) return ""
-  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+
+  try {
+    // Usar normalización NFD para descomponer caracteres acentuados
+    return text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Eliminar diacríticos
+      .toLowerCase() // Convertir a minúsculas para mejor comparación
+      .trim() // Eliminar espacios al inicio y final
+  } catch (error) {
+    // Fallback para navegadores que no soportan normalize
+    return text.toLowerCase().trim()
+  }
 }
 
-// Optimize the cleanPunctuation function to handle more cases
+// Mejorar la función cleanPunctuation para manejar más casos
 function cleanPunctuation(text) {
   if (!text) return ""
+
   return text
-    .replace(/[.,;:!?¡¿'"()[\]{}]+/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/[.,;:!?¡¿'"()[\]{}«»""'']+/g, " ") // Más signos de puntuación
+    .replace(/\s+/g, " ") // Reemplazar múltiples espacios con uno solo
     .trim()
 }
 
@@ -37,10 +49,21 @@ export const extractName = (text) => {
     // Procesar el texto con NLP
     const doc = nlp(text)
 
-    // Verificar si es una pregunta
+    // Verificar si es una pregunta o comando - mejorado
     if (doc.questions().length > 0) {
       console.log("NLP: Se detectó una pregunta en lugar de un nombre")
       return null
+    }
+
+    // Verificar si contiene palabras clave que indican que no es un nombre
+    const lowerText = text.toLowerCase()
+    const negativeIndicators = ["no sé", "no se", "no quiero", "no te importa", "anónimo", "anonimo", "ninguno"]
+
+    for (const indicator of negativeIndicators) {
+      if (lowerText.includes(indicator)) {
+        console.log("NLP: Se detectó una negativa a dar el nombre")
+        return "Anónimo"
+      }
     }
 
     // Intentar extraer nombre propio (mejor precisión que regex)
@@ -50,22 +73,26 @@ export const extractName = (text) => {
       return people[0]
     }
 
-    // Extraer frases de presentación
-    const presentationPhrases = new Set([
-      "me llamo",
-      "mi nombre es",
-      "soy",
-      "yo soy",
-      "puedes llamarme",
-      "puede llamarme",
-      "llámame",
-      "llamame",
+    // Extraer frases de presentación - mejorado con Map para mejor rendimiento
+    const presentationPhrases = new Map([
+      ["me llamo", true],
+      ["mi nombre es", true],
+      ["soy", true],
+      ["yo soy", true],
+      ["puedes llamarme", true],
+      ["puede llamarme", true],
+      ["llámame", true],
+      ["llamame", true],
+      ["dime", true],
+      ["me dicen", true],
+      ["me conocen como", true],
     ])
 
     let cleanedText = text.trim()
-    const normalizedText = normalizeText(text.toLowerCase())
+    const normalizedText = normalizeText(text)
 
-    for (const phrase of presentationPhrases) {
+    // Buscar frases de presentación de manera más eficiente
+    for (const [phrase, _] of presentationPhrases) {
       const normalizedPhrase = normalizeText(phrase)
       if (normalizedText.includes(normalizedPhrase)) {
         // Extraer texto después de la frase
@@ -77,7 +104,7 @@ export const extractName = (text) => {
       }
     }
 
-    // Eliminar palabras comunes y saludos
+    // Eliminar palabras comunes y saludos - mejorado con Set para búsqueda O(1)
     const commonWords = new Set([
       "gracias",
       "por favor",
@@ -87,26 +114,41 @@ export const extractName = (text) => {
       "señor",
       "señora",
       "buenas noches",
+      "estimado",
+      "estimada",
+      "querido",
+      "querida",
+      "don",
+      "doña",
+      "doctor",
+      "doctora",
+      "profesor",
+      "profesora",
+      "licenciado",
+      "licenciada",
     ])
 
-    let normalizedCleanedText = normalizeText(cleanedText.toLowerCase())
+    const normalizedCleanedText = normalizeText(cleanedText)
+    const words = normalizedCleanedText.split(/\s+/)
+    const filteredWords = words.filter((word) => !commonWords.has(word) && word.length > 1)
 
-    for (const word of commonWords) {
-      const normalizedWord = normalizeText(word)
-      const regex = new RegExp(`\\b${normalizedWord}\\b`, "gi")
-      normalizedCleanedText = normalizedCleanedText.replace(regex, "")
+    // Si no quedan palabras después de filtrar
+    if (filteredWords.length === 0) {
+      return "Estimado participante"
     }
 
     // Eliminar múltiples espacios y puntuación
-    cleanedText = cleanPunctuation(normalizedCleanedText || cleanedText)
+    cleanedText = cleanPunctuation(filteredWords.join(" "))
 
     if (!cleanedText) {
       return "Estimado participante"
     }
 
     // Tomar las primeras palabras (máximo 3) como nombre
-    const words = cleanedText.split(" ").filter((word) => word.length > 0)
-    const nameWords = words.slice(0, Math.min(3, words.length))
+    const nameWords = cleanedText
+      .split(" ")
+      .filter((word) => word.length > 0)
+      .slice(0, 3)
 
     // Capitalizar cada palabra del nombre
     return nameWords.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(" ")
@@ -124,155 +166,133 @@ export const extractName = (text) => {
 export const analyzeSentiment = (text) => {
   if (!text) return { sentiment: "neutral", score: 0 }
 
-  const doc = nlp(text)
+  try {
+    const doc = nlp(text)
 
-  const positiveWords = new Set([
-    "bueno",
-    "excelente",
-    "genial",
-    "perfecto",
-    "me gusta",
-    "si",
-    "claro",
-    "fantastico",
-    "magnifico",
-    "estupendo",
-    "maravilloso",
-    "satisfecho",
-    "feliz",
-    "alegre",
-    "contento",
-    "positivo",
-    "agradable",
-    "bien",
-    "favorable",
-  ])
+    // Usar Map para mejor rendimiento en búsqueda
+    const positiveWords = new Map([
+      ["bueno", 1],
+      ["excelente", 1.5],
+      ["genial", 1.2],
+      ["perfecto", 1.5],
+      ["me gusta", 1],
+      ["si", 0.8],
+      ["claro", 0.8],
+      ["fantastico", 1.3],
+      ["magnifico", 1.3],
+      ["estupendo", 1.2],
+      ["maravilloso", 1.3],
+      ["satisfecho", 1],
+      ["feliz", 1.2],
+      ["alegre", 1],
+      ["contento", 1],
+      ["positivo", 0.9],
+      ["agradable", 0.8],
+      ["bien", 0.7],
+      ["favorable", 0.8],
+    ])
 
-  const negativeWords = new Set([
-    "malo",
-    "terrible",
-    "horrible",
-    "pesimo",
-    "no me gusta",
-    "no",
-    "nunca",
-    "desagradable",
-    "deficiente",
-    "decepcionante",
-    "insatisfactorio",
-    "triste",
-    "enojado",
-    "frustrado",
-    "molesto",
-    "insuficiente",
-    "mediocre",
-    "mal",
-    "peor",
-  ])
+    const negativeWords = new Map([
+      ["malo", 1],
+      ["terrible", 1.5],
+      ["horrible", 1.5],
+      ["pesimo", 1.3],
+      ["no me gusta", 1],
+      ["no", 0.8],
+      ["nunca", 0.9],
+      ["desagradable", 1.2],
+      ["deficiente", 1],
+      ["decepcionante", 1.2],
+      ["insatisfactorio", 1.1],
+      ["triste", 1],
+      ["enojado", 1.2],
+      ["frustrado", 1.1],
+      ["molesto", 1],
+      ["insuficiente", 0.9],
+      ["mediocre", 1],
+      ["mal", 0.8],
+      ["peor", 1.2],
+    ])
 
-  let positiveScore = 0
-  let negativeScore = 0
+    let positiveScore = 0
+    let negativeScore = 0
 
-  const lowerText = text.toLowerCase()
-  const normalizedText = normalizeText(lowerText)
+    const lowerText = text.toLowerCase()
+    const normalizedText = normalizeText(lowerText)
+    const words = normalizedText.split(/\s+/)
 
-  // Buscar palabras positivas y calcular su peso según la posición y repetición
-  for (const word of positiveWords) {
-    const normalizedWord = normalizeText(word)
-    const regex = new RegExp(`\\b${normalizedWord}\\b`, "gi")
-    const matches = normalizedText.match(regex)
-    if (matches) {
-      const count = matches.length
-      positiveScore += count
+    // Análisis más eficiente por palabras
+    for (const word of words) {
+      if (word.length < 2) continue // Ignorar palabras muy cortas
 
-      // Dar mayor peso si está al inicio o final de la frase
-      if (normalizedText.startsWith(normalizedWord) || normalizedText.endsWith(normalizedWord)) {
-        positiveScore += 0.5
+      // Verificar palabras positivas con su peso
+      if (positiveWords.has(word)) {
+        positiveScore += positiveWords.get(word)
+      }
+
+      // Verificar palabras negativas con su peso
+      if (negativeWords.has(word)) {
+        negativeScore += negativeWords.get(word)
       }
     }
-  }
 
-  // Buscar palabras negativas
-  for (const word of negativeWords) {
-    const normalizedWord = normalizeText(word)
-    const regex = new RegExp(`\\b${normalizedWord}\\b`, "gi")
-    const matches = normalizedText.match(regex)
-    if (matches) {
-      const count = matches.length
-      negativeScore += count
-
-      // Dar mayor peso si está al inicio o final de la frase
-      if (normalizedText.startsWith(normalizedWord) || normalizedText.endsWith(normalizedWord)) {
-        negativeScore += 0.5
+    // Buscar frases completas para mayor precisión
+    for (const [phrase, weight] of positiveWords.entries()) {
+      if (phrase.includes(" ") && normalizedText.includes(phrase)) {
+        positiveScore += weight * 1.5 // Mayor peso para frases completas
       }
     }
-  }
 
-  // Ajustar por negaciones que invierten el sentimiento
-  const negations = new Set(["no", "nunca", "tampoco", "ni"])
-  for (const negation of negations) {
-    const negPattern = new RegExp(`${negation}\\s+\\w+`, "gi")
-    const matches = lowerText.match(negPattern)
+    for (const [phrase, weight] of negativeWords.entries()) {
+      if (phrase.includes(" ") && normalizedText.includes(phrase)) {
+        negativeScore += weight * 1.5 // Mayor peso para frases completas
+      }
+    }
 
-    if (matches) {
-      // Por cada coincidencia de negación, verificar si afecta a palabras de sentimiento
-      // Extraer la lógica del bucle para evitar problemas de clousure con las variables
-      const processNegations = (matches, posWordsSet, negWordsSet, posScore, negScore) => {
-        let newPosScore = posScore
-        let newNegScore = negScore
+    // Ajustar por negaciones que invierten el sentimiento
+    const negations = new Set(["no", "nunca", "tampoco", "ni"])
 
-        matches.forEach((match) => {
-          const negatedWord = match.split(/\s+/)[1]
-          if (!negatedWord) return
+    // Buscar patrones de negación seguidos de palabras
+    for (const negation of negations) {
+      const regex = new RegExp(`\\b${negation}\\s+\\w+`, "gi")
+      const matches = lowerText.match(regex)
 
+      if (matches) {
+        for (const match of matches) {
+          const words = match.split(/\s+/)
+          if (words.length < 2) continue
+
+          const negatedWord = words[1]
           const normalizedNegatedWord = normalizeText(negatedWord)
 
-          // Si niega una palabra positiva, reducir el positivo y aumentar el negativo
-          for (const word of posWordsSet) {
-            const normalizedWord = normalizeText(word)
-            if (normalizedNegatedWord.includes(normalizedWord)) {
-              newPosScore = Math.max(0, newPosScore - 1)
-              newNegScore += 0.5
-              break
-            }
+          // Si niega una palabra positiva, reducir positivo y aumentar negativo
+          if (positiveWords.has(normalizedNegatedWord)) {
+            positiveScore = Math.max(0, positiveScore - positiveWords.get(normalizedNegatedWord))
+            negativeScore += 0.5
           }
 
-          // Si niega una palabra negativa, reducir el negativo y aumentar el positivo
-          for (const word of negWordsSet) {
-            const normalizedWord = normalizeText(word)
-            if (normalizedNegatedWord.includes(normalizedWord)) {
-              newNegScore = Math.max(0, newNegScore - 1)
-              newPosScore += 0.5
-              break
-            }
+          // Si niega una palabra negativa, reducir negativo y aumentar positivo
+          if (negativeWords.has(normalizedNegatedWord)) {
+            negativeScore = Math.max(0, negativeScore - negativeWords.get(normalizedNegatedWord))
+            positiveScore += 0.5
           }
-        })
-
-        return { newPosScore, newNegScore }
+        }
       }
-
-      // Aplicar el procesamiento
-      const { newPosScore, newNegScore } = processNegations(
-        matches,
-        positiveWords,
-        negativeWords,
-        positiveScore,
-        negativeScore,
-      )
-      positiveScore = newPosScore
-      negativeScore = newNegScore
     }
+
+    // Normalizar a un rango aproximado de -1 a 1
+    const totalScore = positiveScore + negativeScore
+    const score = totalScore > 0 ? (positiveScore - negativeScore) / totalScore : 0
+
+    let sentiment = "neutral"
+    if (score > 0.2) sentiment = "positive"
+    else if (score < -0.2) sentiment = "negative"
+
+    return { sentiment, score }
+  } catch (error) {
+    console.error("Error al analizar sentimiento:", error)
+    return { sentiment: "neutral", score: 0 }
   }
-
-  // Normalizar a un rango aproximado de -1 a 1
-  const totalScore = positiveScore + negativeScore
-  const score = totalScore > 0 ? (positiveScore - negativeScore) / totalScore : 0
-
-  let sentiment = "neutral"
-  if (score > 0.2) sentiment = "positive"
-  else if (score < -0.2) sentiment = "negative"
-
-  return { sentiment, score }
 }
 
 /**
@@ -283,221 +303,131 @@ export const analyzeSentiment = (text) => {
 const analyzeYesNo = (text) => {
   if (!text) return { isYes: false, isNo: false, confidence: 0 }
 
-  // Convertir el array de palabras afirmativas a un Set para búsqueda más eficiente
-  const yesWords = new Set([
-    "sí",
-    "si",
-    "claro",
-    "por supuesto",
-    "afirmativo",
-    "efectivamente",
-    "exacto",
-    "correcto",
-    "ok",
-    "vale",
-    "bueno",
-    "cierto",
-    "verdad",
-    "desde luego",
-    "así es",
-    "sin duda",
-    "obviamente",
-    "naturalmente",
-    "dale",
-    "órale",
-    "va",
-    "venga",
-    "vamos",
-    "ándale",
-    "seguro",
-    "sale",
-    // Reducido para mejorar rendimiento, manteniendo las más comunes
-  ])
+  try {
+    // Convertir el array de palabras afirmativas a un Set para búsqueda más eficiente
+    const yesWords = new Set([
+      "sí",
+      "si",
+      "claro",
+      "por supuesto",
+      "afirmativo",
+      "efectivamente",
+      "exacto",
+      "correcto",
+      "ok",
+      "vale",
+      "bueno",
+      "cierto",
+      "verdad",
+      "desde luego",
+      "así es",
+      "sin duda",
+      "obviamente",
+      "naturalmente",
+      "dale",
+      "órale",
+      "va",
+      "venga",
+      "vamos",
+      "ándale",
+      "seguro",
+      "sale",
+    ])
 
-  // Palabras negativas en español
-  const noWords = new Set([
-    "no",
-    "nunca",
-    "jamás",
-    "jamas",
-    "negativo",
-    "para nada",
-    "en absoluto",
-    "de ninguna manera",
-    "nada",
-    "tampoco",
-    "ni hablar",
-    "que va",
-    "en absoluto",
-    "de ningun modo",
-    "de ningún modo",
-    "ni modo",
-    "ni por asomo",
-    "ni pensarlo",
-    "ni de broma",
-    "ni se te ocurra",
-    "ni se diga",
-    "ni de chiste",
-    "ni lo sueñes",
-    "de ninguna forma",
-    "bajo ningún concepto",
-    "por nada del mundo",
-    "absolutamente no",
-    "rotundamente no",
-    "definitivamente no",
-    "claramente no",
-    "indudablemente no",
-    "imposible",
-    "terminantemente no",
-    "por supuesto que no",
-    "claro que no",
-    "pues no",
-    "ya no",
-    "no más",
-    "no ya",
-    "no quiero",
-    "me niego",
-    "rechazo",
-    "desapruebo",
-    "denegado",
-    "rechazado",
-    "descartado",
-    "refutado",
-    "descalificado",
-    "vetado",
-    "cancelado",
-    "desestimado",
-    "inadmisible",
-    "inaceptable",
-    "inconcebible",
-    "impensable",
-    "imposible",
-    "inviable",
-    "ni loco",
-    "ni muerto",
-    "ni aunque me paguen",
-    "ni aunque me maten",
-    "para nada",
-    "nanay",
-    "nel",
-    "nel pastel",
-    "nones",
-    "no way",
-    "qué va",
-    "olvídalo",
-    "olvídese",
-    "ni lo pienses",
-    "ni lo intentes",
-    "¡no!",
-    "¡nunca!",
-    "¡jamás!",
-    "¡ni hablar!",
-    "¡de ninguna manera!",
-    "¡qué va!",
-    "no puede ser",
-    "no es posible",
-    "niego",
-    "deniego",
-    "no estoy de acuerdo",
-    "disiento",
-    "rehúso",
-    "me opongo",
-    "no lo autorizo",
-    "no se permite",
-    "está prohibido",
-    "ni lo sueñes",
-    "ni por asomo",
-    "ni remotamente",
-    "ni de lejos",
-    "ni una pizca",
-    "ni un ápice",
-    "no hay manera",
-    "ni por casualidad",
-    "ni por error",
-    "ni a tiros",
-    "ni hablar del peluquín",
-    "ni de vaina",
-    "ni de vainas",
-    "ni eso",
-    "non",
-    "no señor",
-    "no señora",
-    "para nada del mundo",
-    "no en absoluto",
-    "jamás de los jamases",
-    "nunca jamás",
-    "ni lo menciones",
-    "ni lo nombres",
-    "ni me lo recuerdes",
-    "ni en sueños",
-    "de ningún modo o manera",
-    "no hay tu tía",
-    "no hay tutía",
-    "no hay caso",
-    "ni en pintura",
-    "ni a la fuerza",
-  ])
+    // Palabras negativas en español
+    const noWords = new Set([
+      "no",
+      "nunca",
+      "jamás",
+      "jamas",
+      "negativo",
+      "para nada",
+      "en absoluto",
+      "de ninguna manera",
+      "nada",
+      "tampoco",
+      "ni hablar",
+      "que va",
+      "en absoluto",
+      "de ningun modo",
+      "de ningún modo",
+      "ni modo",
+      "ni por asomo",
+      "ni pensarlo",
+      "ni de broma",
+      "ni se te ocurra",
+      "ni se diga",
+      "ni de chiste",
+      "ni lo sueñes",
+    ])
 
-  // Buscar coincidencias y acumular peso para analizar respuestas
-  let yesWeight = 0 // Para calcular confianza
-  let noWeight = 0 // Para calcular confianza
+    // Buscar coincidencias y acumular peso para analizar respuestas
+    let yesWeight = 0 // Para calcular confianza
+    let noWeight = 0 // Para calcular confianza
 
-  const lowerText = text.toLowerCase()
-  const normalizedText = normalizeText(lowerText)
-  const words = normalizedText.split(/\s+/)
+    const lowerText = text.toLowerCase()
+    const normalizedText = normalizeText(lowerText)
+    const words = normalizedText.split(/\s+/)
 
-  // Análisis más eficiente por palabras
-  for (const word of words) {
-    if (word.length < 2) continue // Ignorar palabras muy cortas
+    // Análisis más eficiente por palabras
+    for (const word of words) {
+      if (word.length < 2) continue // Ignorar palabras muy cortas
 
-    // Verificar palabras afirmativas
-    if (yesWords.has(word)) {
-      yesWeight += 1
-      // Más peso si está al inicio
-      if (words[0] === word) {
-        yesWeight += 0.5
+      // Verificar palabras afirmativas
+      if (yesWords.has(word)) {
+        yesWeight += 1
+        // Más peso si está al inicio
+        if (words[0] === word) {
+          yesWeight += 0.5
+        }
+      }
+
+      // Verificar palabras negativas
+      if (noWords.has(word)) {
+        noWeight += 1
+        // Más peso si está al inicio
+        if (words[0] === word) {
+          noWeight += 0.5
+        }
       }
     }
 
-    // Verificar palabras negativas (usando las más comunes)
-    if (noWords.has(word)) {
-      noWeight += 1
-      // Más peso si está al inicio
-      if (words[0] === word) {
-        noWeight += 0.5
+    // Analizar frases completas para casos especiales
+    const complexPatterns = [
+      { pattern: "no.*si", isNo: false, isYes: true, weight: 1.5 },
+      { pattern: "si.*no", isNo: true, isYes: false, weight: 1.5 },
+      { pattern: "no.*claro", isNo: true, isYes: false, weight: 1.2 },
+      { pattern: "claro que no", isNo: true, isYes: false, weight: 2 },
+      { pattern: "por supuesto que no", isNo: true, isYes: false, weight: 2 },
+      { pattern: "que si", isNo: false, isYes: true, weight: 1.5 },
+      { pattern: "dije que si", isNo: false, isYes: true, weight: 2 },
+      { pattern: "dije que no", isNo: true, isYes: false, weight: 2 },
+    ]
+
+    for (const { pattern, isNo: patternIsNo, isYes: patternIsYes, weight } of complexPatterns) {
+      if (new RegExp(pattern, "i").test(normalizedText)) {
+        if (patternIsYes) yesWeight += weight
+        if (patternIsNo) noWeight += weight
       }
     }
-  }
 
-  // Analizar frases completas para casos especiales
-  const complexPatterns = [
-    { pattern: "no.*si", isNo: false, isYes: true, weight: 1.5 },
-    { pattern: "si.*no", isNo: true, isYes: false, weight: 1.5 },
-    { pattern: "no.*claro", isNo: true, isYes: false, weight: 1.2 },
-    { pattern: "claro que no", isNo: true, isYes: false, weight: 2 },
-    { pattern: "por supuesto que no", isNo: true, isYes: false, weight: 2 },
-  ]
+    // Determinar resultado
+    const isYes = yesWeight > 0 && yesWeight > noWeight
+    const isNo = noWeight > 0 && noWeight >= yesWeight
 
-  for (const { pattern, isNo: patternIsNo, isYes: patternIsYes, weight } of complexPatterns) {
-    if (new RegExp(pattern, "i").test(normalizedText)) {
-      if (patternIsYes) yesWeight += weight
-      if (patternIsNo) noWeight += weight
+    // Calcular confianza (0-1)
+    let confidence = 0
+    if (isYes) {
+      confidence = Math.min(yesWeight / 3, 1)
+    } else if (isNo) {
+      confidence = Math.min(noWeight / 3, 1)
     }
+
+    return { isYes, isNo, confidence }
+  } catch (error) {
+    console.error("Error al analizar respuesta sí/no:", error)
+    return { isYes: false, isNo: false, confidence: 0 }
   }
-
-  // Determinar resultado
-  const isYes = yesWeight > 0 && yesWeight > noWeight
-  const isNo = noWeight > 0 && noWeight >= yesWeight
-
-  // Calcular confianza (0-1)
-  let confidence = 0
-  if (isYes) {
-    confidence = Math.min(yesWeight / 3, 1)
-  } else if (isNo) {
-    confidence = Math.min(noWeight / 3, 1)
-  }
-
-  return { isYes, isNo, confidence }
 }
 
 /**
@@ -989,7 +919,7 @@ export const validateResponse = (text, questionType, options = []) => {
         if (yesNoResult.confidence < 0.4) {
           return {
             isValid: false,
-            message: "No se pudo determinar si su respuesta es afirmativa o negativa. Por favor, responda con sí o no.",
+            message: "No se pudo determinar si tu respuesta es afirmativa o negativa. Por favor, responde con sí o no.",
           }
         }
         return { isValid: true }
@@ -999,7 +929,7 @@ export const validateResponse = (text, questionType, options = []) => {
         if (numbers.length === 0) {
           return {
             isValid: false,
-            message: "Por favor, proporcione una calificación numérica del 1 al 5.",
+            message: "Por favor, proporciona una calificación numérica del 1 al 5.",
           }
         }
 
@@ -1021,7 +951,7 @@ export const validateResponse = (text, questionType, options = []) => {
         if (!bestMatch.selected || bestMatch.confidence < 0.4) {
           return {
             isValid: false,
-            message: "No se pudo identificar una opción válida. Por favor, elija una de las opciones disponibles.",
+            message: "No pude identificar una opción válida. Por favor, elige una de las opciones disponibles.",
           }
         }
         return { isValid: true }
@@ -1035,7 +965,7 @@ export const validateResponse = (text, questionType, options = []) => {
         if (selectedOptions.length === 0) {
           return {
             isValid: false,
-            message: "No se pudo identificar ninguna opción seleccionada. Por favor, elija al menos una opción.",
+            message: "No pude identificar ninguna opción seleccionada. Por favor, elige al menos una opción.",
           }
         }
         return { isValid: true }
@@ -1045,7 +975,7 @@ export const validateResponse = (text, questionType, options = []) => {
         if (text.trim().length < 2) {
           return {
             isValid: false,
-            message: "Por favor, proporcione una respuesta más detallada.",
+            message: "Por favor, proporciona una respuesta más detallada.",
           }
         }
         return { isValid: true }
@@ -1055,6 +985,6 @@ export const validateResponse = (text, questionType, options = []) => {
     }
   } catch (error) {
     console.error("Error al validar respuesta:", error)
-    return { isValid: true } // En caso de error, permitir la respuesta
+    return { isValid: true, message: "Hubo un problema al validar tu respuesta, pero la aceptaremos." }
   }
 }

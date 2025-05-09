@@ -14,7 +14,9 @@ class AudioService {
 
     // Variables para reconocimiento de voz
     this.recognition = null
-    this.isListening = false
+    this._isListening = false
+    // No necesitamos inicializar isListening en el constructor
+    // ya que ahora accederá directamente a _isListening
     this.recognitionLang = "es-ES"
     this.finalTranscript = ""
     this.interimTranscript = ""
@@ -43,6 +45,15 @@ class AudioService {
 
     // Inicializar sistema al crear instancia
     this.initSpeechSystem()
+  }
+
+  // Agregar getter y setter para isListening
+  get isListening() {
+    return this._isListening || false
+  }
+
+  set isListening(value) {
+    this._isListening = value
   }
 
   /**
@@ -300,7 +311,6 @@ class AudioService {
       this.recognition.interimResults = true // Obtener resultados mientras el usuario habla
       this.recognition.maxAlternatives = 3 // Obtener más alternativas para mejorar precisión
       this.recognition.lang = language
-      
 
       // Manejar resultados con análisis mejorado
       this.recognition.onresult = (event) => {
@@ -345,7 +355,7 @@ class AudioService {
         this.stopAudioAnalysis()
 
         const finalizeRecognition = () => {
-          this.isListening = false
+          this._isListening = false
           this.hasSpeechDetected = false
           this.hasSoundDetected = false
 
@@ -360,7 +370,7 @@ class AudioService {
 
         // Si estábamos escuchando activamente y hay un temporizador de silencio
         // o si se detectó voz, esperamos un poco más antes de finalizar
-        if ((this.isListening && this.silenceTimer) || this.hasSpeechDetected) {
+        if ((this._isListening && this.silenceTimer) || this.hasSpeechDetected) {
           // Esperar un poco más antes de considerar realmente finalizado
           // para capturar posibles fragmentos finales
           setTimeout(finalizeRecognition, 1000)
@@ -372,7 +382,7 @@ class AudioService {
       this.recognition.onerror = (event) => {
         // No marcar como no escuchando inmediatamente para ciertos errores
         if (event.error !== "no-speech" && event.error !== "audio-capture") {
-          this.isListening = false
+          this._isListening = false
         }
 
         // Manejo de errores mejorado
@@ -387,7 +397,7 @@ class AudioService {
 
             // Intentar reiniciar tras un breve retraso
             setTimeout(() => {
-              if (!this.isListening) {
+              if (!this._isListening) {
                 // Solo si no estamos escuchando activamente
                 try {
                   this.startRecognition()
@@ -577,23 +587,18 @@ class AudioService {
   stopAudioAnalysis() {
     this.stopVolumeMonitoring()
 
-    if (this.analyser) {
-      this.analyser = null
+    // No cerrar el AudioContext aquí, solo desconectar el analizador
+    // El AudioContext se cerrará solo en el método dispose()
+    if (this.audioContext && this.analyser) {
+      try {
+        // Desconectar el analizador si existe
+        this.analyser.disconnect()
+      } catch (error) {
+        console.warn("Error al desconectar el analizador:", error)
+      }
     }
 
     this.audioData = null
-
-    // Cerrar contexto de audio si existe
-    if (this.audioContext && this.audioContext.state !== "closed") {
-      try {
-        // En algunos navegadores, close() puede no estar disponible
-        if (typeof this.audioContext.close === "function") {
-          this.audioContext.close()
-        }
-      } catch (error) {
-        // Error silencioso
-      }
-    }
   }
 
   /**
@@ -617,15 +622,15 @@ class AudioService {
     // Configurar nuevo temporizador
     this.silenceTimer = setTimeout(() => {
       // Verificar si realmente ha habido silencio prolongado antes de detener
-      if (this.isListening && !this.hasSpeechDetected) {
+      if (this._isListening && !this.hasSpeechDetected) {
         console.log("Silencio prolongado detectado, deteniendo reconocimiento")
         this.stop()
-      } else if (this.isListening && this.hasSpeechDetected && !this.finalTranscript) {
+      } else if (this._isListening && this.hasSpeechDetected && !this.finalTranscript) {
         // Se detectó habla pero no tenemos resultados finales aún
         // Dar tiempo adicional antes de detener
         console.log("Extendiendo tiempo de escucha después de detectar voz")
         setTimeout(() => {
-          if (this.isListening) {
+          if (this._isListening) {
             this.stop()
           }
         }, 2000)
@@ -647,7 +652,7 @@ class AudioService {
 
       // Iniciar el reconocimiento
       this.recognition.start()
-      this.isListening = true
+      this._isListening = true
 
       // Iniciar temporizador de silencio
       this.resetSilenceTimer()
@@ -655,7 +660,7 @@ class AudioService {
       // Configurar temporizador de tiempo máximo de espera
       // con verificación inteligente de actividad
       setTimeout(() => {
-        if (this.isListening) {
+        if (this._isListening) {
           // Verificar si hay actividad o si se ha detectado voz
           if (!this.finalTranscript && !this.interimTranscript && !this.hasSpeechDetected) {
             console.log("Tiempo máximo de espera alcanzado sin actividad vocal detectada")
@@ -665,7 +670,7 @@ class AudioService {
             // Extender el tiempo para permitir completar el reconocimiento
             console.log("Extendiendo tiempo de espera porque se detectó voz")
             setTimeout(() => {
-              if (this.isListening && !this.finalTranscript) {
+              if (this._isListening && !this.finalTranscript) {
                 console.log("Finalizando después de la extensión de tiempo")
                 this.stop()
               }
@@ -677,7 +682,7 @@ class AudioService {
       return true
     } catch (error) {
       console.error("Error al iniciar reconocimiento:", error)
-      this.isListening = false
+      this._isListening = false
       return false
     }
   }
@@ -826,10 +831,10 @@ class AudioService {
       // Detener análisis de audio
       this.stopAudioAnalysis()
 
-      if (this.recognition && this.isListening) {
+      if (this.recognition && this._isListening) {
         try {
           this.recognition.stop()
-          this.isListening = false
+          this._isListening = false
 
           // También detener el stream del micrófono si existe
           if (this.microphoneStream) {
@@ -839,14 +844,14 @@ class AudioService {
           return true
         } catch (error) {
           console.error("Error al detener reconocimiento:", error)
-          this.isListening = false
+          this._isListening = false
           return false
         }
       }
       return false
     } catch (error) {
       console.error("Error al detener reconocimiento de voz:", error)
-      this.isListening = false
+      this._isListening = false
       return false
     }
   }
@@ -1058,11 +1063,14 @@ class AudioService {
     }
 
     // Cerrar contexto de audio
-    if (this.audioContext && typeof this.audioContext.close === "function") {
+    if (this.audioContext) {
       try {
-        this.audioContext.close()
+        // Verificar si el contexto no está ya cerrado antes de intentar cerrarlo
+        if (this.audioContext.state !== "closed" && typeof this.audioContext.close === "function") {
+          this.audioContext.close()
+        }
       } catch (error) {
-        // Error silencioso
+        console.warn("Error al cerrar AudioContext:", error)
       }
     }
 

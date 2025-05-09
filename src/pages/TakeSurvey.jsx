@@ -58,6 +58,7 @@ const TakeSurvey = () => {
         setSurvey(data)
         // Inicializar respuestas vacías
         setResponses(new Array(data.questions.length).fill(""))
+        setSurveyLoaded(true)
       } catch (error) {
         setError("No se pudo cargar la encuesta. Verifique que el ID sea correcto y que la encuesta esté activa.")
       } finally {
@@ -67,31 +68,66 @@ const TakeSurvey = () => {
 
     fetchSurvey()
 
-    // Inicializar sistema de voz
-    audioService.initSpeechSystem()
-
-    // Configurar el callback para cambios en el permiso del micrófono
-    audioService.onPermissionChange((granted, errorMsg) => {
-      setMicPermission(granted ? "granted" : "denied")
-      if (!granted && errorMsg) {
-        setConversationMessage(`Error de permiso: ${errorMsg}`)
-        setConversationState("permission_denied")
+    // Inicializar sistema de voz con manejo de errores mejorado
+    try {
+      const initialized = audioService.initSpeechSystem()
+      if (!initialized) {
+        console.warn("No se pudo inicializar el sistema de voz. Algunas funciones pueden no estar disponibles.")
       }
-    })
+
+      // Configurar el callback para cambios en el permiso del micrófono
+      audioService.onPermissionChange((granted, errorMsg) => {
+        setMicPermission(granted ? "granted" : "denied")
+        if (!granted && errorMsg) {
+          setConversationMessage(`Error de permiso: ${errorMsg}`)
+          setConversationState("permission_denied")
+        }
+      })
+
+      // Detectar si es un dispositivo móvil y configurar el servicio de audio
+      if (isMobileDevice()) {
+        const mobileConfig = {
+          silenceThreshold: isAndroidDevice() ? 8000 : 7000, // Valores optimizados
+          speakingTimeout: 30000,
+          volumeThreshold: isAndroidDevice() ? 2 : 3,
+        }
+        audioService.setTimingConfig(mobileConfig)
+
+        if (isAndroidDevice()) {
+          audioService.setMobileMode(true)
+        }
+      }
+    } catch (error) {
+      console.error("Error al inicializar el sistema de audio:", error)
+    }
 
     return () => {
       // Detener cualquier síntesis y reconocimiento al desmontar
       if (speakTimeoutRef.current) {
         clearTimeout(speakTimeoutRef.current)
+        speakTimeoutRef.current = null
       }
-      audioService.stop()
+
+      try {
+        // Primero detener cualquier reconocimiento activo
+        if (audioService.isListening) {
+          audioService.stop()
+        }
+
+        // Luego cancelar cualquier síntesis en curso
+        audioService.cancelSpeech()
+
+        // Finalmente liberar recursos
+        setTimeout(() => {
+          audioService.dispose()
+        }, 300) // Pequeño retraso para asegurar que otras operaciones terminen
+      } catch (error) {
+        console.error("Error al limpiar recursos de audio:", error)
+      }
+
       hasInitializedRef.current = false
       hasPlayedWelcomeRef.current = false
       questionSpeakingRef.current = false
-
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel()
-      }
     }
   }, [surveyId])
 
@@ -168,16 +204,12 @@ const TakeSurvey = () => {
   // Función para hablar el texto usando el servicio de audio
   const speakText = useCallback(
     (text, onEndCallback) => {
-      if (!voiceEnabled) {
+      if (!voiceEnabled || !text) {
         if (onEndCallback) onEndCallback()
         return
       }
 
       // Cancela cualquier síntesis en curso y limpia los timeouts anteriores
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel()
-      }
-
       if (speakTimeoutRef.current) {
         clearTimeout(speakTimeoutRef.current)
         speakTimeoutRef.current = null
@@ -187,11 +219,12 @@ const TakeSurvey = () => {
       audioService.stop()
       setIsListening(false)
 
-      // Pequeña pausa antes de hablar
-      speakTimeoutRef.current = setTimeout(() => {
-        setConversationState("speaking")
-        setConversationMessage("Hablando: " + text.substring(0, 30) + (text.length > 30 ? "..." : ""))
+      // Actualizar estado de conversación
+      setConversationState("speaking")
+      setConversationMessage("Hablando: " + (text.length > 30 ? text.substring(0, 30) + "..." : text))
 
+      // Pequeña pausa antes de hablar para mejor experiencia de usuario
+      speakTimeoutRef.current = setTimeout(() => {
         audioService.speakText(
           text,
           () => {
@@ -213,6 +246,7 @@ const TakeSurvey = () => {
             }
           },
           (error) => {
+            console.error("Error en síntesis de voz:", error)
             setConversationState("error")
             setConversationMessage(`Error: ${error}`)
 
@@ -231,6 +265,7 @@ const TakeSurvey = () => {
   const listenForName = useCallback(() => {
     if (!voiceEnabled) return
 
+    // Inicializar reconocimiento con configuración optimizada
     audioService.init("es-ES")
 
     audioService.onResult((transcript, isFinal) => {
@@ -246,13 +281,15 @@ const TakeSurvey = () => {
       // Extraer el nombre usando nlpService con mejor validación
       if (finalTranscript && finalTranscript.trim() !== "") {
         try {
+          // Usar el servicio NLP mejorado para extraer el nombre
           const extractedName = extractName(finalTranscript)
-          // Verificar que sea un nombre válido
+
+          // Verificar que sea un nombre válido con criterios mejorados
           if (extractedName && extractedName !== "Estimado participante" && extractedName.length >= 2) {
             setRespondentName(extractedName)
             setCurrentResponse("")
-            // No finalizamos automáticamente la recolección del nombre
-            // Permitimos que el usuario decida cuándo continuar
+
+            // Mensaje de confirmación mejorado
             speakText(
               `Gracias, ${extractedName}. Presiona Siguiente cuando estés listo para comenzar con la encuesta.`,
               () => {
@@ -261,11 +298,12 @@ const TakeSurvey = () => {
               },
             )
           } else {
+            // Manejo mejorado para nombres no reconocidos
             setRespondentName("Anónimo")
             setCurrentResponse("")
-            // No finalizamos automáticamente la recolección del nombre
+
             speakText(
-              "No pude entender tu nombre. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo para comenzar con la encuesta.",
+              "No pude entender tu nombre correctamente. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo para comenzar con la encuesta.",
               () => {
                 setConversationState("idle")
                 setConversationMessage("Esperando para comenzar la encuesta...")
@@ -276,30 +314,38 @@ const TakeSurvey = () => {
           console.error("Error al procesar el nombre:", error)
           setRespondentName("Anónimo")
           setCurrentResponse("")
+
           speakText("Hubo un problema al procesar tu nombre. Te llamaré Anónimo por ahora.", () => {
             setConversationState("idle")
             setConversationMessage("Esperando para comenzar la encuesta...")
           })
         }
       } else {
-        // No se detectó ningún texto
+        // No se detectó ningún texto - manejo mejorado
         setRespondentName("Anónimo")
         setCurrentResponse("")
-        speakText("No pude entender tu nombre. Te llamaré Anónimo por ahora.", () => {
-          setConversationState("idle")
-          setConversationMessage("Esperando para comenzar la encuesta...")
-        })
+
+        speakText(
+          "No pude entender tu nombre. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo.",
+          () => {
+            setConversationState("idle")
+            setConversationMessage("Esperando para comenzar la encuesta...")
+          },
+        )
       }
     })
 
     audioService.onError((errorMessage) => {
+      console.error("Error en reconocimiento de voz:", errorMessage)
       setIsListening(false)
       setConversationState("error")
       setConversationMessage(`Error: ${errorMessage}`)
+
       // En caso de error, seguir con el nombre anónimo
       setRespondentName("Anónimo")
+
       speakText(
-        "Hubo un problema al captar tu nombre. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo para comenzar con la encuesta.",
+        "Hubo un problema al captar tu nombre. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo.",
         () => {
           setConversationState("idle")
           setConversationMessage("Esperando para comenzar la encuesta...")
@@ -308,14 +354,21 @@ const TakeSurvey = () => {
     })
 
     try {
-      audioService.start()
+      // Usar el método start mejorado con opciones de sensibilidad
+      audioService.start({
+        silenceThreshold: 7000, // Tiempo más largo para captar nombres completos
+        preset: "high", // Alta sensibilidad para captar mejor el nombre
+      })
+
       setIsListening(true)
       setConversationState("listening")
       setConversationMessage("Escuchando tu nombre...")
     } catch (error) {
+      console.error("Error al iniciar reconocimiento de voz:", error)
       setRespondentName("Anónimo")
+
       speakText(
-        "No pude activar el micrófono. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo para comenzar con la encuesta.",
+        "No pude activar el micrófono. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo.",
         () => {
           setConversationState("idle")
           setConversationMessage("Esperando para comenzar la encuesta...")
@@ -438,9 +491,7 @@ const TakeSurvey = () => {
     }
 
     // Detener cualquier síntesis de voz en curso
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel()
-    }
+    audioService.cancelSpeech()
 
     // Inicializar el reconocimiento de voz con el idioma español
     audioService.init("es-ES")
@@ -459,80 +510,73 @@ const TakeSurvey = () => {
       if (finalTranscript && finalTranscript.trim() !== "") {
         const currentQuestion = survey.questions[currentQuestionIndex]
 
-        // Validar la respuesta según el tipo de pregunta
-        const validation = validateResponse(finalTranscript, currentQuestion.type, currentQuestion.options)
+        // Validar la respuesta según el tipo de pregunta con mejor manejo de errores
+        try {
+          const validation = validateResponse(finalTranscript, currentQuestion.type, currentQuestion.options)
 
-        if (validation.isValid) {
-          // Procesar la respuesta según el tipo de pregunta
-          const processedResponse = processResponse(finalTranscript, currentQuestion.type, currentQuestion.options)
+          if (validation.isValid) {
+            // Procesar la respuesta según el tipo de pregunta
+            const processedResponse = processResponse(finalTranscript, currentQuestion.type, currentQuestion.options)
 
-          // Guardar respuesta procesada en el array de respuestas
-          const updatedResponses = [...responses]
-          updatedResponses[currentQuestionIndex] = {
-            raw: finalTranscript,
-            processed: processedResponse,
+            // Guardar respuesta procesada en el array de respuestas
+            const updatedResponses = [...responses]
+            updatedResponses[currentQuestionIndex] = {
+              raw: finalTranscript,
+              processed: processedResponse,
+            }
+            setResponses(updatedResponses)
+
+            // Mostrar la respuesta procesada o la original según el tipo
+            let displayResponse = finalTranscript
+
+            // Para preguntas de selección única, mostrar la opción seleccionada
+            if (currentQuestion.type === "single" && processedResponse && processedResponse.selected) {
+              displayResponse = `Selección: ${processedResponse.selected}`
+            }
+            // Para preguntas de selección múltiple, mostrar las opciones seleccionadas
+            else if (currentQuestion.type === "multiple" && Array.isArray(processedResponse)) {
+              // Eliminar duplicados y valores vacíos
+              const uniqueSelections = [...new Set(processedResponse.map((item) => item.selected))].filter(Boolean)
+              const selections = uniqueSelections.join(", ")
+              displayResponse = `Selecciones: ${selections || "Ninguna"}`
+            }
+            // Para preguntas de sí/no, mostrar Sí o No
+            else if (currentQuestion.type === "yesno") {
+              displayResponse = processedResponse === true ? "Sí" : "No"
+            }
+            // Para valoraciones, mostrar la puntuación
+            else if (currentQuestion.type === "rating" && typeof processedResponse === "number") {
+              displayResponse = `Valoración: ${processedResponse} de 5`
+            }
+
+            setCurrentResponse(displayResponse)
+
+            // Confirmar la respuesta al usuario
+            speakText(`He registrado tu respuesta: ${displayResponse}`, null)
+          } else {
+            // Si la respuesta no es válida, informar al usuario y volver a preguntar
+            setCurrentResponse(finalTranscript + " (Respuesta no válida)")
+
+            speakText(`${validation.message} Vamos a intentarlo de nuevo.`, () => {
+              // Volver a leer la pregunta después de un breve momento
+              setTimeout(() => {
+                speakCurrentQuestion()
+              }, 1000)
+            })
           }
-          setResponses(updatedResponses)
+        } catch (error) {
+          console.error("Error al procesar respuesta:", error)
 
-          // Mostrar la respuesta procesada o la original según el tipo
-          let displayResponse = finalTranscript
-
-          // Para preguntas de selección única, mostrar la opción seleccionada
-          if (currentQuestion.type === "single" && processedResponse && processedResponse.selected) {
-            displayResponse = `Selección: ${processedResponse.selected}`
-          }
-          // Para preguntas de selección múltiple, mostrar las opciones seleccionadas
-          else if (currentQuestion.type === "multiple" && Array.isArray(processedResponse)) {
-            // Eliminar duplicados y valores vacíos
-            const uniqueSelections = [...new Set(processedResponse.map((item) => item.selected))].filter(Boolean)
-            const selections = uniqueSelections.join(", ")
-            displayResponse = `Selecciones: ${selections || "Ninguna"}`
-          }
-          // Para preguntas de sí/no, mostrar Sí o No
-          else if (currentQuestion.type === "yesno") {
-            displayResponse = processedResponse === true ? "Sí" : "No"
-          }
-          // Para valoraciones, mostrar la puntuación
-          else if (currentQuestion.type === "rating" && typeof processedResponse === "number") {
-            displayResponse = `Valoración: ${processedResponse} de 5`
-          }
-
-          setCurrentResponse(displayResponse)
-
-          // Confirmar la respuesta al usuario
-          speakText(`He registrado tu respuesta: ${displayResponse}`, null)
-        } else {
-          // Si la respuesta no es válida, informar al usuario y volver a preguntar
-          setCurrentResponse(finalTranscript + " (Respuesta no válida)")
-          speakText(`${validation.message} Vamos a intentarlo de nuevo.`, () => {
-            // Volver a leer la pregunta después de un breve momento
+          // Manejo de error mejorado
+          setCurrentResponse(finalTranscript)
+          speakText("Hubo un problema al procesar tu respuesta. Vamos a intentarlo de nuevo.", () => {
             setTimeout(() => {
-              const currentQuestion = survey.questions[currentQuestionIndex]
-              let questionText = `Pregunta ${currentQuestionIndex + 1}: ${currentQuestion.text}`
-
-              // Añadir instrucciones según el tipo de pregunta
-              if (currentQuestion.type === "single" && currentQuestion.options && currentQuestion.options.length > 0) {
-                questionText += ". Por favor, elige una de las siguientes opciones: "
-                questionText += currentQuestion.options.map((option, idx) => `Opción ${idx + 1}: ${option}`).join(", ")
-              } else if (
-                currentQuestion.type === "multiple" &&
-                currentQuestion.options &&
-                currentQuestion.options.length > 0
-              ) {
-                questionText += ". Puedes elegir una o varias de las siguientes opciones: "
-                questionText += currentQuestion.options.map((option, idx) => `Opción ${idx + 1}: ${option}`).join(", ")
-              } else if (currentQuestion.type === "rating") {
-                questionText += ". Por favor, responde con un número del 1 al 5, donde 1 es muy malo y 5 es excelente."
-              } else if (currentQuestion.type === "yesno") {
-                questionText += ". Por favor, responde sí o no."
-              }
-
-              speakText(questionText, null)
+              speakCurrentQuestion()
             }, 1000)
           })
         }
       } else {
-        // No se detectó ninguna respuesta
+        // No se detectó ninguna respuesta - manejo mejorado
         speakText("No pude entender tu respuesta. Por favor, inténtalo de nuevo.", () => {
           // Volver a preguntar
           speakCurrentQuestion()
@@ -541,13 +585,34 @@ const TakeSurvey = () => {
     })
 
     audioService.onError((errorMessage) => {
+      console.error("Error en reconocimiento de voz:", errorMessage)
       setIsListening(false)
       setConversationState("error")
       setConversationMessage(`Error: ${errorMessage}`)
+
+      // Intentar recuperarse del error
+      setTimeout(() => {
+        setConversationState("idle")
+        setConversationMessage("Puedes intentar hablar de nuevo o usar los botones para navegar")
+      }, 3000)
     })
 
     try {
-      const started = await audioService.start()
+      // Usar el método start mejorado con opciones de sensibilidad según el tipo de pregunta
+      const currentQuestion = survey.questions[currentQuestionIndex]
+      let options = {}
+
+      // Ajustar sensibilidad según el tipo de pregunta
+      if (currentQuestion.type === "open") {
+        options = { preset: "veryLow" } // Más tiempo para respuestas abiertas
+      } else if (currentQuestion.type === "yesno") {
+        options = { preset: "high" } // Alta sensibilidad para respuestas cortas
+      } else {
+        options = { preset: "medium" } // Sensibilidad media para otros tipos
+      }
+
+      const started = await audioService.start(options)
+
       if (started) {
         setIsListening(true)
         setConversationState("listening")
@@ -557,6 +622,7 @@ const TakeSurvey = () => {
         setConversationState("idle")
       }
     } catch (error) {
+      console.error("Error al iniciar reconocimiento:", error)
       setError(`Error al iniciar reconocimiento: ${error.message || "Error desconocido"}`)
       setConversationState("idle")
     }
