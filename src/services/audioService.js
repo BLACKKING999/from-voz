@@ -7,8 +7,6 @@
 class AudioService {
   constructor() {
     // Variables de estado para síntesis de voz
-    this.cachedVoices = null;
-    this.preferredVoice = null;  // Nueva propiedad para almacenar la voz preferida
     this.isSpeaking = false;
     this.currentUtterance = null;
     this.resumeInterval = null;
@@ -82,14 +80,9 @@ class AudioService {
         this.volumeThreshold = 2;
       }
     }
-
-    // Cargar voces inmediatamente si están disponibles
-    this.loadVoices();
     
-    // Configurar el evento onvoiceschanged para Chrome
-    if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = () => this.loadVoices();
-    }
+    // Precalentar el sistema una vez durante la inicialización
+    this.preloadSpeechSynthesis();
     
     return true;
   }
@@ -125,23 +118,7 @@ class AudioService {
     this.currentUtterance = null;
   }
 
-  /**
-   * Método separado para cargar voces (mejor modularidad)
-   */
-  loadVoices() {
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      this.cachedVoices = voices;
-      
-      // Filtrar voces en español (es-ES, es-MX, etc.) y usarlas
-      this.spanishVoices = voices.filter((voice) => voice.lang.startsWith("es"));
-      
-      // Pre-seleccionar una voz preferida para evitar búsquedas repetidas
-      this.preferredVoice = this.spanishVoices.length > 0 ? 
-        this.spanishVoices[0] : 
-        (voices.length > 0 ? voices[0] : null);
-    }
-  }
+
   
   /**
    * Utiliza la API de síntesis de voz para leer un texto
@@ -162,13 +139,13 @@ class AudioService {
       return () => {};
     }
     
-    // Si ya estamos hablando, cancelar primero (reducido de 700ms a 300ms)
+    // Si ya estamos hablando, cancelar primero (reducido a 200ms)
     if (this.isSpeaking) {
       this.cancelSpeech();
       
       setTimeout(() => {
         this.speakText(text, onStarted, onEnded, onError);
-      }, 300);
+      }, 200);
       
       return () => {};
     }
@@ -183,27 +160,9 @@ class AudioService {
       
       // Configurar parámetros básicos
       utterance.lang = 'es-ES';
-      utterance.rate = 1.0;     // Velocidad normal
-      utterance.pitch = 1.0;    // Tono normal
-      utterance.volume = 1.0;   // Volumen máximo
-      
-      // Usar la voz pre-seleccionada si está disponible
-      if (this.preferredVoice) {
-        utterance.voice = this.preferredVoice;
-      } else {
-        // Comportamiento de respaldo
-        const voices = this.cachedVoices || window.speechSynthesis.getVoices();
-        const spanishVoice = voices.find(voice => 
-          voice.lang.includes('es') || 
-          voice.name.toLowerCase().includes('spanish')
-        );
-        
-        if (spanishVoice) {
-          utterance.voice = spanishVoice;
-        } else if (voices.length > 0) {
-          utterance.voice = voices[0];
-        }
-      }
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
       
       // Configurar eventos
       utterance.onstart = () => {
@@ -214,20 +173,13 @@ class AudioService {
         this.isSpeaking = false;
         
         // Limpiar temporizadores
-        if (this.resumeInterval) {
-          clearInterval(this.resumeInterval);
-          this.resumeInterval = null;
-        }
-        
         if (this.utteranceTimeoutId) {
           clearTimeout(this.utteranceTimeoutId);
           this.utteranceTimeoutId = null;
         }
         
-        // Pausa natural reducida de 700ms a 300ms
-        setTimeout(() => {
-          if (onEnded) onEnded();
-        }, 300);
+        // Llamar al callback inmediatamente sin pausa artificial
+        if (onEnded) onEnded();
       };
       
       utterance.onerror = (event) => {
@@ -250,42 +202,36 @@ class AudioService {
       // Cancelar cualquier síntesis previa
       window.speechSynthesis.cancel();
       
-      // Reducir el retraso inicial de 150ms a 50ms
-      setTimeout(() => {
-        // Iniciar la síntesis
-        window.speechSynthesis.speak(utterance);
-        
-        // *** WORKAROUNDS CRÍTICOS ***
-        
-        // 1. Workaround para el problema de Chrome donde la síntesis se detiene después de ~15s
-        this.resumeInterval = setInterval(() => {
-          if (window.speechSynthesis.speaking) {
-            window.speechSynthesis.pause();
-            window.speechSynthesis.resume();
-          } else {
-            clearInterval(this.resumeInterval);
-            this.resumeInterval = null;
-          }
-        }, 10000);
-        
-        // 2. Workaround para el caso donde onend no se dispara
-        // Tiempo basado en la longitud del texto (125ms por caracter) con un mínimo de 8 segundos
-        // Aumentado para dar más tiempo a la síntesis
-        const maxSpeakingTime = Math.max(8000, text.length * 125);
-        this.utteranceTimeoutId = setTimeout(() => {
-          if (window.speechSynthesis.speaking) {
-            window.speechSynthesis.cancel();
-            this.isSpeaking = false;
-            
-            if (onEnded) onEnded();
-          }
+      // Iniciar la síntesis inmediatamente sin retraso
+      window.speechSynthesis.speak(utterance);
+      
+      // *** WORKAROUND CRÍTICO PARA CHROME ***
+      // Soluciona el problema donde la síntesis se detiene después de 15 segundos
+      this.resumeInterval = setInterval(() => {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        } else {
+          clearInterval(this.resumeInterval);
+          this.resumeInterval = null;
+        }
+      }, 10000);
+      
+      // Workaround para el caso donde onend no se dispara
+      const maxSpeakingTime = Math.max(8000, text.length * 125);
+      this.utteranceTimeoutId = setTimeout(() => {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.cancel();
+          this.isSpeaking = false;
           
-          if (this.resumeInterval) {
-            clearInterval(this.resumeInterval);
-            this.resumeInterval = null;
-          }
-        }, maxSpeakingTime);
-      }, 50); // Reducido de 150ms a 50ms
+          if (onEnded) onEnded();
+        }
+        
+        if (this.resumeInterval) {
+          clearInterval(this.resumeInterval);
+          this.resumeInterval = null;
+        }
+      }, maxSpeakingTime);
       
       return () => {
         this.cancelSpeech();
@@ -1050,44 +996,34 @@ setMobileMode(isActive) {
 }
 
 /**
- * Método auxiliar para precalentar el sistema de síntesis de voz
+ * Método auxiliar para precalentar el sistema de síntesis de voz (simplificado)
  * @returns {boolean} - true si se pudo precalentar, false en caso contrario
  */
 preloadSpeechSynthesis() {
-  // Técnica de "precalentamiento" del motor de síntesis
   if (typeof window !== 'undefined' && window.speechSynthesis) {
-    // Crear y hablar un mensaje vacío para activar el sistema
-    const warmupUtterance = new SpeechSynthesisUtterance('');
-    warmupUtterance.volume = 0; // Silenciar para que no sea audible
-    warmupUtterance.rate = 1;
+    // Crear un mensaje mínimo para activar el sistema
+    const warmupUtterance = new SpeechSynthesisUtterance(' ');
+    warmupUtterance.volume = 0; // Silenciar
     window.speechSynthesis.speak(warmupUtterance);
-    
-    // Cancelar después de un breve tiempo
-    setTimeout(() => {
-      window.speechSynthesis.cancel();
-    }, 100);
-    
+    window.speechSynthesis.cancel(); // Cancelar inmediatamente
     return true;
   }
   return false;
 }
 
 /**
- * Método auxiliar para la primera síntesis, con precalentamiento
+ * Método auxiliar para la primera síntesis (optimizado)
  * @param {string} text - Texto a leer
  * @param {Function} onStarted - Callback cuando inicia la síntesis
  * @param {Function} onEnded - Callback cuando termina la síntesis
  * @param {Function} onError - Callback en caso de error
  */
 firstSpeech(text, onStarted, onEnded, onError) {
-  // Primero precalentar el sistema
   this.preloadSpeechSynthesis();
-  
-  // Esperar un breve momento y luego hablar
-  setTimeout(() => {
-    this.speakText(text, onStarted, onEnded, onError);
-  }, 100);
+  // Hablar inmediatamente sin espera
+  this.speakText(text, onStarted, onEnded, onError);
 }
+
 }
 
 // Exportar una instancia única del servicio

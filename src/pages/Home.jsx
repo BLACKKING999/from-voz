@@ -1,48 +1,9 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { auth } from '../utils/firebase';
-import audioService from '../services/audioService';
 
 const Home = () => {
   const user = auth.currentUser;
-
-  // Detección automática y silenciosa del micrófono al cargar Home
-  useEffect(() => {
-    // Inicializar sistema de voz en segundo plano
-    const initializeMicrophoneInBackground = async () => {
-      try {
-        // Inicializar el sistema de audio de manera silenciosa
-        audioService.initSpeechSystem();
-        
-        // Solo solicitar permiso de manera silenciosa si es posible
-        // Este enfoque no mostrará diálogos en la mayoría de navegadores modernos
-        if (navigator.permissions && navigator.permissions.query) {
-          const permissionStatus = await navigator.permissions.query({ name: 'microphone' });
-          
-          if (permissionStatus.state === 'granted') {
-            // Si ya tenemos permiso, inicializar completamente el sistema
-            // pero sin empezar a escuchar ni hablar
-            audioService.requestMicrophonePermission(true); // El true indica modo silencioso
-            console.log('Permiso de micrófono detectado y preinicializado');
-          } else {
-            // No hacer nada si no tenemos permiso, para evitar prompts
-            console.log('Acceso al micrófono pendiente, se solicitará cuando sea necesario');
-          }
-        }
-      } catch (error) {
-        // Fallar silenciosamente, sin mostrar errores al usuario
-        console.log('Preconfiguración del micrófono no completada, se intentará más tarde');
-      }
-    };
-
-    // Ejecutar la inicialización silenciosa
-    initializeMicrophoneInBackground();
-    
-    // Limpieza cuando se desmonte el componente
-    return () => {
-      // No necesitamos hacer nada especial para limpiar ya que no iniciamos escucha activa
-    };
-  }, []);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-12">
