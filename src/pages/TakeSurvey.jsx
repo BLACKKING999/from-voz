@@ -251,10 +251,11 @@ const TakeSurvey = () => {
           if (extractedName && extractedName !== "Estimado participante" && extractedName.length >= 2) {
             setRespondentName(extractedName)
             setCurrentResponse("")
+            // No finalizamos automáticamente la recolección del nombre
+            // Permitimos que el usuario decida cuándo continuar
             speakText(
               `Gracias, ${extractedName}. Presiona Siguiente cuando estés listo para comenzar con la encuesta.`,
               () => {
-                setNameCollectionComplete(true)
                 setConversationState("idle")
                 setConversationMessage("Esperando para comenzar la encuesta...")
               },
@@ -262,10 +263,10 @@ const TakeSurvey = () => {
           } else {
             setRespondentName("Anónimo")
             setCurrentResponse("")
+            // No finalizamos automáticamente la recolección del nombre
             speakText(
               "No pude entender tu nombre. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo para comenzar con la encuesta.",
               () => {
-                setNameCollectionComplete(true)
                 setConversationState("idle")
                 setConversationMessage("Esperando para comenzar la encuesta...")
               },
@@ -276,7 +277,6 @@ const TakeSurvey = () => {
           setRespondentName("Anónimo")
           setCurrentResponse("")
           speakText("Hubo un problema al procesar tu nombre. Te llamaré Anónimo por ahora.", () => {
-            setNameCollectionComplete(true)
             setConversationState("idle")
             setConversationMessage("Esperando para comenzar la encuesta...")
           })
@@ -286,7 +286,6 @@ const TakeSurvey = () => {
         setRespondentName("Anónimo")
         setCurrentResponse("")
         speakText("No pude entender tu nombre. Te llamaré Anónimo por ahora.", () => {
-          setNameCollectionComplete(true)
           setConversationState("idle")
           setConversationMessage("Esperando para comenzar la encuesta...")
         })
@@ -302,7 +301,6 @@ const TakeSurvey = () => {
       speakText(
         "Hubo un problema al captar tu nombre. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo para comenzar con la encuesta.",
         () => {
-          setNameCollectionComplete(true)
           setConversationState("idle")
           setConversationMessage("Esperando para comenzar la encuesta...")
         },
@@ -319,7 +317,6 @@ const TakeSurvey = () => {
       speakText(
         "No pude activar el micrófono. Te llamaré Anónimo por ahora. Presiona Siguiente cuando estés listo para comenzar con la encuesta.",
         () => {
-          setNameCollectionComplete(true)
           setConversationState("idle")
           setConversationMessage("Esperando para comenzar la encuesta...")
         },
@@ -352,11 +349,15 @@ const TakeSurvey = () => {
       speakText("¿Podrías decirme tu nombre, por favor?", () => {
         listenForName()
       })
+    } else if (!nameCollectionComplete) {
+      // Si ya se preguntó el nombre pero no se ha completado la recolección,
+      // volver a escuchar el nombre
+      listenForName()
     } else {
-      // Si ya se preguntó el nombre, continuar con la primera pregunta
+      // Si ya se completó la recolección del nombre, continuar con la primera pregunta
       speakCurrentQuestion()
     }
-  }, [nameAsked, speakText, listenForName, speakCurrentQuestion])
+  }, [nameAsked, nameCollectionComplete, speakText, listenForName, speakCurrentQuestion])
 
   useEffect(() => {
     // Solo iniciar si tenemos encuesta, voz habilitada, permiso, y no hemos iniciado antes
@@ -574,7 +575,9 @@ const TakeSurvey = () => {
   // Navegar a la siguiente pregunta
   const goToNextQuestion = () => {
     // Si estamos en la fase de recolección de nombre y no hemos empezado la encuesta aún
-    if (nameCollectionComplete && !showSurveyQuestions) {
+    if (!showSurveyQuestions) {
+      // Marcar que hemos completado la recolección del nombre
+      setNameCollectionComplete(true)
       startSurveyAfterName()
       return
     }
@@ -1300,7 +1303,6 @@ const TakeSurvey = () => {
         )}
       </div>
 
-      {/* Contenido principal (Nombre, Pregunta o Confirmación) - Estilizado */}
       {!nameCollectionComplete ? (
         <div className="bg-white rounded-lg shadow-lg p-6 mb-6 border border-red-100 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 via-white to-red-500"></div>
@@ -1362,9 +1364,33 @@ const TakeSurvey = () => {
 
           {/* Botones para registrar nombre - Estilizados */}
           <div className="flex justify-between mt-6">
-            <div></div> {/* Espacio vacío para mantener la disposición */}
+            <div>
+              {!isListening && respondentName && (
+                <button
+                  onClick={listenForName}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md shadow-md hover:bg-red-700 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 disabled:opacity-70 flex items-center"
+                  disabled={conversationState === "speaking"}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-5 w-5 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                    />
+                  </svg>
+                  Cambiar nombre
+                </button>
+              )}
+            </div>
             <button
-              onClick={nameCollectionComplete ? startSurveyAfterName : goToNextQuestion}
+              onClick={goToNextQuestion}
               className="px-5 py-2 bg-gradient-to-r from-red-600 to-red-800 text-white rounded-md shadow-md hover:from-red-700 hover:to-red-900 transition-all transform hover:translate-y-[-2px] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 disabled:opacity-70 flex items-center"
               disabled={isListening || conversationState === "speaking"}
             >
