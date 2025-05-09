@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { SurveyService, ResponseService } from "../services/apiService"
 
@@ -20,6 +20,9 @@ const TakeSurvey = () => {
   const hasPlayedWelcomeRef = useRef(false)
   const speakTimeoutRef = useRef(null)
   const questionSpeakingRef = useRef(false)
+  // Estado para controlar cuando la encuesta se ha cargado completamente
+  // se mantiene como referencia para futuras implementaciones
+  // eslint-disable-next-line no-unused-vars
   const [surveyLoaded, setSurveyLoaded] = useState(false)
 
   // Estados
@@ -40,8 +43,11 @@ const TakeSurvey = () => {
   const [conversationState, setConversationState] = useState("idle") // idle, speaking, listening, processing
   const [conversationMessage, setConversationMessage] = useState("")
   const [micPermission, setMicPermission] = useState("unknown") // 'unknown', 'granted', 'denied'
+  // Estado para rastrear el estado actual del proceso
+  // eslint-disable-next-line no-unused-vars
   const [status, setStatus] = useState("")
   const [currentTransitionPhrase, setCurrentTransitionPhrase] = useState("")
+  // eslint-disable-next-line no-unused-vars
   const [currentFarewellPhrase, setCurrentFarewellPhrase] = useState("")
 
   // Cargar la encuesta
@@ -176,10 +182,69 @@ const TakeSurvey = () => {
         askForName()
       }
     }
-  }, [survey, voiceEnabled, micPermission, loading])
+  }, [survey, voiceEnabled, micPermission, loading, askForName, speakText])
+
+  // Función para hablar el texto usando el servicio de audio
+  const speakText = useCallback((text, onEndCallback) => {
+    if (!voiceEnabled) {
+      if (onEndCallback) onEndCallback()
+      return
+    }
+
+    // Cancela cualquier síntesis en curso y limpia los timeouts anteriores
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+    }
+
+    if (speakTimeoutRef.current) {
+      clearTimeout(speakTimeoutRef.current)
+      speakTimeoutRef.current = null
+    }
+
+    // Detener cualquier reconocimiento en curso para evitar conflictos
+    audioService.stop()
+    setIsListening(false)
+
+    // Pequeña pausa antes de hablar
+    speakTimeoutRef.current = setTimeout(() => {
+      setConversationState("speaking")
+      setConversationMessage("Hablando: " + text.substring(0, 30) + (text.length > 30 ? "..." : ""))
+
+      audioService.speakText(
+        text,
+        () => {
+          if (text.includes("Pregunta")) {
+            questionSpeakingRef.current = true
+          }
+        },
+        () => {
+          setConversationState("idle")
+
+          // Marcar que ya no está hablando la pregunta
+          if (questionSpeakingRef.current) {
+            questionSpeakingRef.current = false
+          }
+
+          // Llamar al callback después de hablar, si existe
+          if (onEndCallback) {
+            onEndCallback()
+          }
+        },
+        (error) => {
+          setConversationState("error")
+          setConversationMessage(`Error: ${error}`)
+
+          // En caso de error, intentar continuar
+          if (onEndCallback) {
+            onEndCallback()
+          }
+        },
+      )
+    }, 300)
+  }, [voiceEnabled])
 
   // Función para preguntar el nombre al usuario
-  const askForName = () => {
+  const askForName = useCallback(() => {
     if (!nameAsked) {
       setNameAsked(true)
       speakText("¿Podrías decirme tu nombre, por favor?", () => {
@@ -189,7 +254,7 @@ const TakeSurvey = () => {
       // Si ya se preguntó el nombre, continuar con la primera pregunta
       speakCurrentQuestion()
     }
-  }
+  }, [nameAsked, speakText])  // Añadimos dependencias
 
   // Escuchar el nombre del usuario
   const listenForName = () => {
@@ -320,67 +385,8 @@ const TakeSurvey = () => {
     }
   }
 
-  // Función para hablar el texto usando el servicio de audio
-  const speakText = (text, onEndCallback) => {
-    if (!voiceEnabled) {
-      if (onEndCallback) onEndCallback()
-      return
-    }
-
-    // Cancela cualquier síntesis en curso y limpia los timeouts anteriores
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel()
-    }
-
-    if (speakTimeoutRef.current) {
-      clearTimeout(speakTimeoutRef.current)
-      speakTimeoutRef.current = null
-    }
-
-    // Detener cualquier reconocimiento en curso para evitar conflictos
-    audioService.stop()
-    setIsListening(false)
-
-    // Pequeña pausa antes de hablar
-    speakTimeoutRef.current = setTimeout(() => {
-      setConversationState("speaking")
-      setConversationMessage("Hablando: " + text.substring(0, 30) + (text.length > 30 ? "..." : ""))
-
-      audioService.speakText(
-        text,
-        () => {
-          if (text.includes("Pregunta")) {
-            questionSpeakingRef.current = true
-          }
-        },
-        () => {
-          setConversationState("idle")
-
-          // Marcar que ya no está hablando la pregunta
-          if (questionSpeakingRef.current) {
-            questionSpeakingRef.current = false
-          }
-
-          // Llamar al callback después de hablar, si existe
-          if (onEndCallback) {
-            onEndCallback()
-          }
-        },
-        (error) => {
-          setConversationState("error")
-          setConversationMessage(`Error: ${error}`)
-
-          // En caso de error, intentar continuar
-          if (onEndCallback) {
-            onEndCallback()
-          }
-        },
-      )
-    }, 300)
-  }
-
   // Función para hablar la pregunta actual
-  const speakCurrentQuestion = () => {
+  const speakCurrentQuestion = useCallback(() => {
     if (!survey || !voiceEnabled) return
 
     const currentQuestion = survey.questions[currentQuestionIndex]
@@ -395,7 +401,9 @@ const TakeSurvey = () => {
     }
 
     speakText(questionText, null)
-  }
+  }, [survey, voiceEnabled, currentQuestionIndex, speakText])
+
+  // La función speakCurrentQuestion ahora está definida con useCallback arriba
 
   // Función para iniciar la escucha de la respuesta del usuario
   const startListening = async () => {

@@ -87,11 +87,8 @@ class AudioService {
       if (voices.length > 0) {
         this.cachedVoices = voices;
         
-        // Buscar voces en español
-        const spanishVoices = voices.filter(v => 
-          v.lang.includes('es') || 
-          v.name.toLowerCase().includes('spanish')
-        );
+        // Filtrar voces en español (es-ES, es-MX, etc.) y usarlas
+        this.spanishVoices = voices.filter((voice) => voice.lang.startsWith("es"));
       }
     };
   

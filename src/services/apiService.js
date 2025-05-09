@@ -191,7 +191,7 @@ export const UserService = {
 };
 
 // Exportar los servicios y funciones básicas
-export default {
+const apiService = {
   get,
   post,
   put,
@@ -200,3 +200,5 @@ export default {
   ResponseService,
   UserService
 };
+
+export default apiService;

@@ -199,32 +199,45 @@ export const analyzeSentiment = (text) => {
 
     if (matches) {
       // Por cada coincidencia de negación, verificar si afecta a palabras de sentimiento
-      matches.forEach((match) => {
-        const negatedWord = match.split(/\s+/)[1]
-        if (!negatedWord) return
+      // Extraer la lógica del bucle para evitar problemas de clousure con las variables
+      const processNegations = (matches, posWordsSet, negWordsSet, posScore, negScore) => {
+        let newPosScore = posScore;
+        let newNegScore = negScore;
+        
+        matches.forEach((match) => {
+          const negatedWord = match.split(/\s+/)[1];
+          if (!negatedWord) return;
 
-        const normalizedNegatedWord = normalizeText(negatedWord)
+          const normalizedNegatedWord = normalizeText(negatedWord);
 
-        // Si niega una palabra positiva, reducir el positivo y aumentar el negativo
-        for (const word of positiveWords) {
-          const normalizedWord = normalizeText(word)
-          if (normalizedNegatedWord.includes(normalizedWord)) {
-            positiveScore = Math.max(0, positiveScore - 1)
-            negativeScore += 0.5
-            break
+          // Si niega una palabra positiva, reducir el positivo y aumentar el negativo
+          for (const word of posWordsSet) {
+            const normalizedWord = normalizeText(word);
+            if (normalizedNegatedWord.includes(normalizedWord)) {
+              newPosScore = Math.max(0, newPosScore - 1);
+              newNegScore += 0.5;
+              break;
+            }
           }
-        }
 
-        // Si niega una palabra negativa, reducir el negativo y aumentar el positivo
-        for (const word of negativeWords) {
-          const normalizedWord = normalizeText(word)
-          if (normalizedNegatedWord.includes(normalizedWord)) {
-            negativeScore = Math.max(0, negativeScore - 1)
-            positiveScore += 0.5
-            break
+          // Si niega una palabra negativa, reducir el negativo y aumentar el positivo
+          for (const word of negWordsSet) {
+            const normalizedWord = normalizeText(word);
+            if (normalizedNegatedWord.includes(normalizedWord)) {
+              newNegScore = Math.max(0, newNegScore - 1);
+              newPosScore += 0.5;
+              break;
+            }
           }
-        }
-      })
+        });
+        
+        return { newPosScore, newNegScore };
+      };
+      
+      // Aplicar el procesamiento
+      const { newPosScore, newNegScore } = processNegations(matches, positiveWords, negativeWords, positiveScore, negativeScore);
+      positiveScore = newPosScore;
+      negativeScore = newNegScore;
     }
   }
 
@@ -409,11 +422,13 @@ const yesWords = ['Sí', 'sí', 'si', 'claro', 'por supuesto', 'afirmativo', 'ef
     "ni a la fuerza"
 ])
 
-  // Buscar coincidencias
-  let yesCount = 0
-  let noCount = 0
-  let yesWeight = 0
-  let noWeight = 0
+  // Buscar coincidencias y acumular peso para analizar respuestas
+  // eslint-disable-next-line no-unused-vars
+  let yesCount = 0  // Para contar ocurrencias (utilizable en versiones futuras)
+  // eslint-disable-next-line no-unused-vars
+  let noCount = 0   // Para contar ocurrencias (utilizable en versiones futuras)
+  let yesWeight = 0 // Para calcular confianza
+  let noWeight = 0  // Para calcular confianza
 
   const lowerText = text.toLowerCase()
   const normalizedText = normalizeText(lowerText)
