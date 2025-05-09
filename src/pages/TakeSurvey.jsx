@@ -165,25 +165,6 @@ const TakeSurvey = () => {
   }
 
   // Iniciar la encuesta una vez que está cargada y tenemos permiso del micrófono
-  useEffect(() => {
-    // Solo iniciar si tenemos encuesta, voz habilitada, permiso, y no hemos iniciado antes
-    if (survey && voiceEnabled && micPermission === "granted" && !hasInitializedRef.current && !loading) {
-      hasInitializedRef.current = true
-
-      // Dar un mensaje de bienvenida y preguntar el nombre
-      if (survey.welcomeMessage && !hasPlayedWelcomeRef.current) {
-        hasPlayedWelcomeRef.current = true
-        speakText(survey.welcomeMessage, () => {
-          // Preguntar el nombre después de la bienvenida
-          askForName()
-        })
-      } else {
-        // Si no hay mensaje de bienvenida, preguntar directamente el nombre
-        askForName()
-      }
-    }
-  }, [survey, voiceEnabled, micPermission, loading, askForName, speakText])
-
   // Función para hablar el texto usando el servicio de audio
   const speakText = useCallback((text, onEndCallback) => {
     if (!voiceEnabled) {
@@ -242,22 +223,9 @@ const TakeSurvey = () => {
       )
     }, 300)
   }, [voiceEnabled])
-
-  // Función para preguntar el nombre al usuario
-  const askForName = useCallback(() => {
-    if (!nameAsked) {
-      setNameAsked(true)
-      speakText("¿Podrías decirme tu nombre, por favor?", () => {
-        listenForName()
-      })
-    } else {
-      // Si ya se preguntó el nombre, continuar con la primera pregunta
-      speakCurrentQuestion()
-    }
-  }, [nameAsked, speakText])  // Añadimos dependencias
-
+  
   // Escuchar el nombre del usuario
-  const listenForName = () => {
+  const listenForName = useCallback(() => {
     if (!voiceEnabled) return
 
     audioService.init("es-ES")
@@ -354,7 +322,63 @@ const TakeSurvey = () => {
         },
       )
     }
-  }
+  }, [voiceEnabled, speakText])
+
+  // Función para hablar la pregunta actual
+  const speakCurrentQuestion = useCallback(() => {
+    if (!survey || !voiceEnabled) return
+
+    const currentQuestion = survey.questions[currentQuestionIndex]
+    if (!currentQuestion) return
+
+    let questionText = `Pregunta ${currentQuestionIndex + 1}: ${currentQuestion.text}`
+
+    // Agregar información sobre opciones si es pregunta de opción múltiple
+    if (currentQuestion.type === "multiple_choice" && currentQuestion.options) {
+      questionText += ". Las opciones son: "
+      questionText += currentQuestion.options.map((option, idx) => `Opción ${idx + 1}: ${option}`).join(", ")
+    }
+
+    speakText(questionText, null)
+  }, [survey, voiceEnabled, currentQuestionIndex, speakText])
+
+  // Función para preguntar el nombre al usuario
+  const askForName = useCallback(() => {
+    if (!nameAsked) {
+      setNameAsked(true)
+      speakText("¿Podrías decirme tu nombre, por favor?", () => {
+        listenForName()
+      })
+    } else {
+      // Si ya se preguntó el nombre, continuar con la primera pregunta
+      speakCurrentQuestion()
+    }
+  }, [nameAsked, speakText, listenForName, speakCurrentQuestion])
+
+  useEffect(() => {
+    // Solo iniciar si tenemos encuesta, voz habilitada, permiso, y no hemos iniciado antes
+    if (survey && voiceEnabled && micPermission === "granted" && !hasInitializedRef.current && !loading) {
+      hasInitializedRef.current = true
+
+      // Dar un mensaje de bienvenida y preguntar el nombre
+      if (survey.welcomeMessage && !hasPlayedWelcomeRef.current) {
+        hasPlayedWelcomeRef.current = true
+        speakText(survey.welcomeMessage, () => {
+          // Preguntar el nombre después de la bienvenida
+          askForName()
+        })
+      } else {
+        // Si no hay mensaje de bienvenida, preguntar directamente el nombre
+        askForName()
+      }
+    }
+  }, [survey, voiceEnabled, micPermission, loading, askForName, speakText])
+
+  // Ya se ha reubicado arriba
+
+  // Ya se ha reubicado arriba
+
+  // La función listenForName se ha movido arriba
 
   // Función para comenzar la encuesta después de recoger el nombre
   const startSurveyAfterName = () => {
@@ -385,23 +409,7 @@ const TakeSurvey = () => {
     }
   }
 
-  // Función para hablar la pregunta actual
-  const speakCurrentQuestion = useCallback(() => {
-    if (!survey || !voiceEnabled) return
-
-    const currentQuestion = survey.questions[currentQuestionIndex]
-    if (!currentQuestion) return
-
-    let questionText = `Pregunta ${currentQuestionIndex + 1}: ${currentQuestion.text}`
-
-    // Agregar información sobre opciones si es pregunta de opción múltiple
-    if (currentQuestion.type === "multiple_choice" && currentQuestion.options) {
-      questionText += ". Las opciones son: "
-      questionText += currentQuestion.options.map((option, idx) => `Opción ${idx + 1}: ${option}`).join(", ")
-    }
-
-    speakText(questionText, null)
-  }, [survey, voiceEnabled, currentQuestionIndex, speakText])
+  // Ya se ha reubicado arriba
 
   // La función speakCurrentQuestion ahora está definida con useCallback arriba
 

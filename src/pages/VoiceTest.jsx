@@ -8,6 +8,7 @@ const VoiceTest = () => {
   const [text, setText] = useState('Hola, soy tu asistente virtual. ¿En qué puedo ayudarte hoy?');
   const [recognizedText, setRecognizedText] = useState('');
   const [status, setStatus] = useState('');
+  // eslint-disable-next-line no-unused-vars
   const [voicesAvailable, setVoicesAvailable] = useState([]);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [recognitionSupported, setRecognitionSupported] = useState(false);
@@ -28,6 +29,8 @@ const VoiceTest = () => {
     setTimeout(() => {
       if (window.speechSynthesis) {
         const voices = window.speechSynthesis.getVoices();
+        // Comentamos esta variable ya que no se usa en el resto del componente
+        // eslint-disable-next-line no-unused-vars
         const spanishVoices = voices.filter(v => 
           v.lang.includes('es') || 
           v.name.toLowerCase().includes('spanish')
@@ -62,7 +65,7 @@ const VoiceTest = () => {
         audioService.stop();
       }
     };
-  }, []);
+  }, [text, isListening, handleSpeak, addToConversation]); // Añadimos las dependencias necesarias
 
   // Función para añadir mensajes al historial de conversación
   const addToConversation = (speaker, message) => {
@@ -120,6 +123,7 @@ const VoiceTest = () => {
   };
 
   // Función para detener la síntesis de voz
+  // eslint-disable-next-line no-unused-vars
   const handleStop = () => {
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();

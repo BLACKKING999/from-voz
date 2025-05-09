@@ -424,6 +424,7 @@ const yesWords = ['Sí', 'sí', 'si', 'claro', 'por supuesto', 'afirmativo', 'ef
 
   // Buscar coincidencias y acumular peso para analizar respuestas
   // eslint-disable-next-line no-unused-vars
+  // eslint-disable-next-line no-unused-vars
   let yesCount = 0  // Para contar ocurrencias (utilizable en versiones futuras)
   // eslint-disable-next-line no-unused-vars
   let noCount = 0   // Para contar ocurrencias (utilizable en versiones futuras)

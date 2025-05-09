@@ -8,6 +8,7 @@ class AudioService {
   constructor() {
     // Variables de estado para síntesis de voz
     this.cachedVoices = null;
+    this.preferredVoice = null;  // Nueva propiedad para almacenar la voz preferida
     this.isSpeaking = false;
     this.currentUtterance = null;
     this.resumeInterval = null;
@@ -31,9 +32,9 @@ class AudioService {
     this.onErrorCallback = null;
     
     // Configuración mejorada para el reconocimiento de voz
-    this.silenceThreshold = 2500; // Tiempo en ms para considerar silencio (aumentado para móviles)
-    this.speakingTimeout = 12000;  // Tiempo en ms para esperar respuesta (aumentado para móviles)
-    this.volumeThreshold = 7; // umbral de volumen para considerar que hay voz (reducido para mayor sensibilidad)
+    this.silenceThreshold = 5000;   // Aumentado de 2500 a 5000ms
+    this.speakingTimeout = 60000;   // Ya es adecuado
+    this.volumeThreshold = 5;       // Ajustado de 7 a 5 para mayor sensibilidad
     this.restartAttempts = 0;     // Contador de intentos de reinicio
     this.maxRestartAttempts = 8;  // Máximo número de reintentos
     this.silenceTimer = null;     // Timer para detectar silencio
@@ -63,7 +64,8 @@ class AudioService {
   }
 
   /**
-   * Inicializa el sistema de síntesis y precarga las voces
+   * Inicializa el sistema de síntesis de voz
+   * @returns {boolean} - true si se inició correctamente, false en caso contrario
    */
   initSpeechSystem() {
     // Verificar si la API está disponible
@@ -73,33 +75,22 @@ class AudioService {
     
     // Aplicar configuración específica para dispositivos móviles
     if (this.isMobileDevice()) {
-      this.silenceThreshold = 15000; // Dar aún más tiempo en móviles antes de considerar silencio
-      this.speakingTimeout = 30000; // Mayor tiempo máximo de espera en móviles
+      this.silenceThreshold = 15000;
+      this.speakingTimeout = 60000;
       
       if (this.isAndroidDevice()) {
-        this.volumeThreshold = 2; // Umbral aún más bajo para Android
+        this.volumeThreshold = 2;
       }
     }
-  
-    // Obtener y cachear las voces disponibles
-    const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        this.cachedVoices = voices;
-        
-        // Filtrar voces en español (es-ES, es-MX, etc.) y usarlas
-        this.spanishVoices = voices.filter((voice) => voice.lang.startsWith("es"));
-      }
-    };
-  
-    // Chrome requiere este evento
+
+    // Cargar voces inmediatamente si están disponibles
+    this.loadVoices();
+    
+    // Configurar el evento onvoiceschanged para Chrome
     if (window.speechSynthesis.onvoiceschanged !== undefined) {
-      window.speechSynthesis.onvoiceschanged = loadVoices;
+      window.speechSynthesis.onvoiceschanged = () => this.loadVoices();
     }
-  
-    // Intentar cargar las voces inmediatamente también
-    loadVoices();
-  
+    
     return true;
   }
 
@@ -135,8 +126,30 @@ class AudioService {
   }
 
   /**
-   * Habla el texto dado usando técnicas avanzadas para mejorar la confiabilidad
-   * Incluye manejo de tiempos naturales entre frases
+   * Método separado para cargar voces (mejor modularidad)
+   */
+  loadVoices() {
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      this.cachedVoices = voices;
+      
+      // Filtrar voces en español (es-ES, es-MX, etc.) y usarlas
+      this.spanishVoices = voices.filter((voice) => voice.lang.startsWith("es"));
+      
+      // Pre-seleccionar una voz preferida para evitar búsquedas repetidas
+      this.preferredVoice = this.spanishVoices.length > 0 ? 
+        this.spanishVoices[0] : 
+        (voices.length > 0 ? voices[0] : null);
+    }
+  }
+  
+  /**
+   * Utiliza la API de síntesis de voz para leer un texto
+   * @param {string} text - Texto a leer
+   * @param {Function} onStarted - Callback cuando inicia la síntesis
+   * @param {Function} onEnded - Callback cuando termina la síntesis
+   * @param {Function} onError - Callback en caso de error
+   * @returns {Function} - Función para cancelar la síntesis
    */
   speakText(text, onStarted, onEnded, onError) {
     if (!text || text.trim() === '') {
@@ -149,15 +162,13 @@ class AudioService {
       return () => {};
     }
     
-    // Si ya estamos hablando, crear una cola temporal
+    // Si ya estamos hablando, cancelar primero (reducido de 700ms a 300ms)
     if (this.isSpeaking) {
-      // Cancelamos la síntesis actual y esperamos un momento antes de comenzar la nueva
       this.cancelSpeech();
       
-      // Esperar 500ms para asegurar que termine la síntesis anterior
       setTimeout(() => {
         this.speakText(text, onStarted, onEnded, onError);
-      }, 500);
+      }, 300);
       
       return () => {};
     }
@@ -176,17 +187,22 @@ class AudioService {
       utterance.pitch = 1.0;    // Tono normal
       utterance.volume = 1.0;   // Volumen máximo
       
-      // Obtener voces y seleccionar una voz en español si está disponible
-      const voices = this.cachedVoices || window.speechSynthesis.getVoices();
-      const spanishVoice = voices.find(voice => 
-        voice.lang.includes('es') || 
-        voice.name.toLowerCase().includes('spanish')
-      );
-      
-      if (spanishVoice) {
-        utterance.voice = spanishVoice;
-      } else if (voices.length > 0) {
-        utterance.voice = voices[0];
+      // Usar la voz pre-seleccionada si está disponible
+      if (this.preferredVoice) {
+        utterance.voice = this.preferredVoice;
+      } else {
+        // Comportamiento de respaldo
+        const voices = this.cachedVoices || window.speechSynthesis.getVoices();
+        const spanishVoice = voices.find(voice => 
+          voice.lang.includes('es') || 
+          voice.name.toLowerCase().includes('spanish')
+        );
+        
+        if (spanishVoice) {
+          utterance.voice = spanishVoice;
+        } else if (voices.length > 0) {
+          utterance.voice = voices[0];
+        }
       }
       
       // Configurar eventos
@@ -208,10 +224,10 @@ class AudioService {
           this.utteranceTimeoutId = null;
         }
         
-        // Esperar un momento antes de llamar al callback para simular una pausa natural
+        // Pausa natural reducida de 700ms a 300ms
         setTimeout(() => {
           if (onEnded) onEnded();
-        }, 500); // Aumentado de 300ms a 500ms para una pausa más natural
+        }, 300);
       };
       
       utterance.onerror = (event) => {
@@ -234,7 +250,7 @@ class AudioService {
       // Cancelar cualquier síntesis previa
       window.speechSynthesis.cancel();
       
-      // Iniciar síntesis después de una breve pausa para evitar conflictos
+      // Reducir el retraso inicial de 150ms a 50ms
       setTimeout(() => {
         // Iniciar la síntesis
         window.speechSynthesis.speak(utterance);
@@ -269,7 +285,7 @@ class AudioService {
             this.resumeInterval = null;
           }
         }, maxSpeakingTime);
-      }, 150); // Aumentado de 100ms a 150ms para mayor estabilidad
+      }, 50); // Reducido de 150ms a 50ms
       
       return () => {
         this.cancelSpeech();
@@ -512,405 +528,566 @@ class AudioService {
 
   /**
    * Inicia el monitoreo de volumen para mejor detección de voz
-   */
-  startVolumeMonitoring() {
-    // Detener monitoreo previo si existe
-    this.stopVolumeMonitoring();
+      
+this.recognition.onnomatch = function() {
+  // Considerar reiniciar el reconocimiento
+  if (self.restartAttempts < self.maxRestartAttempts) {
+    self.restartAttempts++;
     
-    // Iniciar nuevo intervalo de monitoreo
-    this.volumeCheckInterval = setInterval(() => {
-      if (!this.analyser || !this.audioData) return;
-      
-      // Obtener datos de frecuencia actual
-      this.analyser.getByteFrequencyData(this.audioData);
-      
-      // Calcular volumen promedio
-      let sum = 0;
-      for (let i = 0; i < this.audioData.length; i++) {
-        sum += this.audioData[i];
+    setTimeout(() => {
+      try {
+        self.startRecognition();
+      } catch (e) {
+        // Error silencioso
       }
-      const averageVolume = sum / this.audioData.length;
+    }, 1000);
+  }
+};
       
-      // Umbral de detección de voz (ajustable)
-      const voiceThreshold = 20;
+this.recognition.onaudiostart = function() {
+  // Iniciar análisis de audio si es posible
+  self.setupAudioAnalysis();
+};
       
-      if (averageVolume > voiceThreshold) {
+this.recognition.onsoundstart = function() {
+  self.hasSoundDetected = true;
+  console.log('Some sound is being detected');
+};
+      
+this.recognition.onsoundend = function() {
+  console.log('Sound has stopped being detected');
+};
+      
+this.recognition.onspeechstart = function() {
+  self.hasSpeechDetected = true;
+  self.resetSilenceTimer(); // Reiniciar el temporizador de silencio
+  console.log('Speech has been detected');
+};
+      
+this.recognition.onspeechend = function() {
+  console.log('Speech has stopped being detected');
+  // Iniciar un temporizador para permitir pausas naturales en el habla
+  // sin detener prematuramente el reconocimiento
+  self.resetSilenceTimer(true);
+};
+      
+this.recognition.onaudioend = function() {
+  console.log('Audio capturing ended');
+};
+      
+this.recognition.onstart = function() {
+  console.log('Recognition service has started');
+};
+      
+return true;
+}
+
+/**
+ * Configura el análisis de audio para mejor detección de voz
+ */
+setupAudioAnalysis() {
+  // Solo configurar si tenemos acceso al stream
+  if (!this.microphoneStream) return;
+  
+  try {
+    // Crear contexto de audio si no existe
+    if (!this.audioContext) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      this.audioContext = new AudioContext();
+    }
+    
+    // Crear analizador de audio
+    this.analyser = this.audioContext.createAnalyser();
+    this.analyser.fftSize = 256;
+    
+    // Conectar el stream de micrófono al analizador
+    const source = this.audioContext.createMediaStreamSource(this.microphoneStream);
+    source.connect(this.analyser);
+    
+    // Preparar buffer para datos
+    this.audioData = new Uint8Array(this.analyser.frequencyBinCount);
+    
+    // Iniciar monitoreo de volumen
+    this.startVolumeMonitoring();
+  } catch (error) {
+    // Error silencioso
+  }
+}
+
+/**
+ * Inicia el monitoreo de volumen para mejor detección de voz
+ */
+startVolumeMonitoring() {
+  // Detener monitoreo previo si existe
+  this.stopVolumeMonitoring();
+  
+  // Contadores para mejorar la precisión de detección
+  let consecutiveSilenceFrames = 0;
+  let consecutiveVoiceFrames = 0;
+  
+  // Iniciar nuevo intervalo de monitoreo
+  this.volumeCheckInterval = setInterval(() => {
+    if (!this.analyser || !this.audioData) return;
+    
+    // Obtener datos de frecuencia actual
+    this.analyser.getByteFrequencyData(this.audioData);
+    
+    // Calcular volumen promedio con enfoque mejorado
+    // Centrarse en las frecuencias de voz humana (aproximadamente 300-3000 Hz)
+    let sum = 0;
+    let count = 0;
+    
+    // El rango exacto depende de fftSize y sampleRate
+    // Este es un aproximado genérico
+    const lowerIndex = Math.floor(this.audioData.length / 8);     // ~300Hz
+    const upperIndex = Math.floor(this.audioData.length / 2.5);   // ~3000Hz
+    
+    for (let i = lowerIndex; i < upperIndex && i < this.audioData.length; i++) {
+      sum += this.audioData[i];
+      count++;
+    }
+    
+    const averageVolume = count > 0 ? sum / count : 0;
+    
+    // Umbral de detección de voz ajustado
+    if (averageVolume > this.volumeThreshold) {
+      consecutiveVoiceFrames++;
+      consecutiveSilenceFrames = 0;
+      
+      // Necesitamos al menos 3 frames consecutivos con voz para confirmar
+      if (consecutiveVoiceFrames >= 3) {
         // Se detectó voz, resetear temporizador de silencio
+        this.hasSpeechDetected = true;
         this.resetSilenceTimer();
-      }
-    }, 200); // Comprobar cada 200ms
-  }
-
-  /**
-   * Detiene el monitoreo de volumen
-   */
-  stopVolumeMonitoring() {
-    if (this.volumeCheckInterval) {
-      clearInterval(this.volumeCheckInterval);
-      this.volumeCheckInterval = null;
-    }
-  }
-
-  /**
-   * Detiene el análisis de audio
-   */
-  stopAudioAnalysis() {
-    this.stopVolumeMonitoring();
-    
-    if (this.analyser) {
-      this.analyser = null;
-    }
-    
-    this.audioData = null;
-  }
-
-  /**
-   * Reinicia el temporizador de silencio
-   * @param {boolean} isSpeechEnd - Indica si se llama desde el evento speechend
-   */
-  resetSilenceTimer(isSpeechEnd = false) {
-    // Limpiar temporizador existente
-    if (this.silenceTimer) {
-      clearTimeout(this.silenceTimer);
-      this.silenceTimer = null;
-    }
-    
-    // Si se detectó el final del habla, usar un umbral más corto
-    // para evitar esperas largas cuando ya no hay voz
-    const threshold = isSpeechEnd ? 
-      Math.min(2000, this.silenceThreshold / 2) : // Mitad del tiempo normal o 2 segundos, lo que sea menor
-      this.silenceThreshold;
-    
-    // Configurar nuevo temporizador
-    this.silenceTimer = setTimeout(() => {
-      // Si seguimos escuchando, es tiempo de considerar que el usuario ha terminado
-      if (this.isListening) {
-        console.log('Silencio detectado, deteniendo reconocimiento');
-        this.stop();
-      }
-    }, threshold);
-  }
-
-  /**
-   * Método interno para iniciar el reconocimiento (usado para reintentos)
-   */
-  startRecognition() {
-    if (this.recognition) {
-      try {
-        // Reiniciar indicadores de detección de sonido y habla
-        this.hasSpeechDetected = false;
-        this.hasSoundDetected = false;
-        
-        // Iniciar el reconocimiento
-        this.recognition.start();
-        this.isListening = true;
-        
-        // Iniciar temporizador de silencio
-        this.resetSilenceTimer();
-        
-        // Configurar temporizador de tiempo máximo de espera
-        // con verificación inteligente de actividad
-        setTimeout(() => {
-          if (this.isListening) {
-            // Verificar si hay actividad o si se ha detectado voz
-            if (!this.finalTranscript && !this.interimTranscript && !this.hasSpeechDetected) {
-              console.log('Tiempo máximo de espera alcanzado sin actividad vocal detectada');
-              this.stop();
-            } else if (this.hasSpeechDetected && !this.finalTranscript) {
-              // Se detectó habla pero aún no hay resultados finales
-              // Extender el tiempo para permitir completar el reconocimiento
-              console.log('Extendiendo tiempo de espera porque se detectó voz');
-              setTimeout(() => {
-                if (this.isListening && !this.finalTranscript) {
-                  console.log('Finalizando después de la extensión de tiempo');
-                  this.stop();
-                }
-              }, this.speakingTimeout / 2); // Mitad del tiempo original como extensión
-            }
-          }
-        }, this.speakingTimeout);
-        
-        return true;
-      } catch (error) {
-        console.error('Error al iniciar reconocimiento:', error);
-        this.isListening = false;
-        return false;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Solicita permiso para usar el micrófono con opciones mejoradas
-   * @returns {Promise<boolean>} - Promise que resuelve a true si se otorgó permiso, false en caso contrario
-   */
-  async requestMicrophonePermission() {
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      try {
-        // Solicitar acceso al micrófono con configuración óptima para reconocimiento de voz
-        const constraints = {
-          audio: {
-            echoCancellation: true,          // Eliminar eco
-            noiseSuppression: true,          // Suprimir ruido de fondo
-            autoGainControl: true,           // Ajustar volumen automáticamente
-            channelCount: 1,                 // Mono para mejor reconocimiento de voz
-            sampleRate: 48000,               // Alta calidad de muestreo
-            sampleSize: 16                   // 16 bits por muestra para mejor calidad
-          }
-        };
-        
-        // En dispositivos móviles, ajustar configuración
-        if (this.isMobileDevice()) {
-          constraints.audio.echoCancellation = this.isAndroidDevice() ? true : false;
-          constraints.audio.noiseSuppression = this.isAndroidDevice() ? true : false;
-        }
-        
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        
-        // Almacenar la referencia al stream para poder detenerlo después
-        this.microphoneStream = stream;
-        this.permissionGranted = true;
-        
-        // Notificar que el permiso fue concedido si hay un callback
-        if (this.permissionCallback) {
-          this.permissionCallback(true);
-        }
-        
-        return true;
-      } catch (error) {
-        this.permissionGranted = false;
-        // Notificar que el permiso fue denegado si hay un callback
-        if (this.permissionCallback) {
-          this.permissionCallback(false, error.message);
-        }
-        
-        return false;
       }
     } else {
+      consecutiveSilenceFrames++;
+      consecutiveVoiceFrames = 0;
+    }
+  }, 100); // Comprobar cada 100ms en lugar de 200ms para mayor precisión
+}
+
+/**
+ * Detiene el monitoreo de volumen
+ */
+stopVolumeMonitoring() {
+  if (this.volumeCheckInterval) {
+    clearInterval(this.volumeCheckInterval);
+    this.volumeCheckInterval = null;
+  }
+}
+
+/**
+ * Detiene el análisis de audio
+ */
+stopAudioAnalysis() {
+  this.stopVolumeMonitoring();
+  
+  if (this.analyser) {
+    this.analyser = null;
+  }
+  
+  this.audioData = null;
+}
+
+/**
+ * Reinicia el temporizador de silencio
+ * @param {boolean} isSpeechEnd - Indica si se llama desde el evento speechend
+ */
+resetSilenceTimer(isSpeechEnd = false) {
+  // Limpiar temporizador existente
+  if (this.silenceTimer) {
+    clearTimeout(this.silenceTimer);
+    this.silenceTimer = null;
+  }
+  
+  // Si se detectó el final del habla, usar un umbral más largo
+  // para dar más tiempo a pausas naturales
+  const threshold = isSpeechEnd ? 
+    this.silenceThreshold * 1.5 : // 50% más tiempo después de detectar final de habla
+    this.silenceThreshold;
+  
+  // Configurar nuevo temporizador
+  this.silenceTimer = setTimeout(() => {
+    // Verificar si realmente ha habido silencio prolongado antes de detener
+    if (this.isListening && !this.hasSpeechDetected) {
+      console.log('Silencio prolongado detectado, deteniendo reconocimiento');
+      this.stop();
+    } else if (this.isListening && this.hasSpeechDetected && !this.finalTranscript) {
+      // Se detectó habla pero no tenemos resultados finales aún
+      // Dar tiempo adicional antes de detener
+      console.log('Extendiendo tiempo de escucha después de detectar voz');
+      setTimeout(() => {
+        if (this.isListening) {
+          this.stop();
+        }
+      }, 2000);
+    }
+  }, threshold);
+}
+
+/**
+ * Método interno para iniciar el reconocimiento (usado para reintentos)
+ */
+startRecognition() {
+  if (this.recognition) {
+    try {
+      // Reiniciar indicadores de detección de sonido y habla
+      this.hasSpeechDetected = false;
+      this.hasSoundDetected = false;
+      
+      // Iniciar el reconocimiento
+      this.recognition.start();
+      this.isListening = true;
+      
+      // Iniciar temporizador de silencio
+      this.resetSilenceTimer();
+      
+      // Configurar temporizador de tiempo máximo de espera
+      // con verificación inteligente de actividad
+      setTimeout(() => {
+        if (this.isListening) {
+          // Verificar si hay actividad o si se ha detectado voz
+          if (!this.finalTranscript && !this.interimTranscript && !this.hasSpeechDetected) {
+            console.log('Tiempo máximo de espera alcanzado sin actividad vocal detectada');
+            this.stop();
+          } else if (this.hasSpeechDetected && !this.finalTranscript) {
+            // Se detectó habla pero aún no hay resultados finales
+            // Extender el tiempo para permitir completar el reconocimiento
+            console.log('Extendiendo tiempo de espera porque se detectó voz');
+            setTimeout(() => {
+              if (this.isListening && !this.finalTranscript) {
+                console.log('Finalizando después de la extensión de tiempo');
+                this.stop();
+              }
+            }, this.speakingTimeout / 2); // Mitad del tiempo original como extensión
+          }
+        }
+      }, this.speakingTimeout);
+      
+      return true;
+    } catch (error) {
+      console.error('Error al iniciar reconocimiento:', error);
+      this.isListening = false;
       return false;
     }
   }
+  return false;
+}
 
-  /**
-   * Establece el callback para cuando cambia el estado del permiso del micrófono
-   * @param {Function} callback - Función a llamar cuando cambia el estado del permiso
-   */
-  onPermissionChange(callback) {
-    this.permissionCallback = callback;
-  }
-
-  /**
-   * Configura los tiempos de espera para el reconocimiento de voz
-   * @param {Object} options - Opciones de configuración
-   * @param {number} options.silenceThreshold - Tiempo en ms para considerar silencio (por defecto 3000ms)
-   * @param {number} options.speakingTimeout - Tiempo máximo de espera para una respuesta (por defecto 8000ms)
-   */
-  configureTimings(options = {}) {
-    if (options.silenceThreshold && typeof options.silenceThreshold === 'number') {
-      this.silenceThreshold = options.silenceThreshold;
-    }
-    
-    if (options.speakingTimeout && typeof options.speakingTimeout === 'number') {
-      this.speakingTimeout = options.speakingTimeout;
-    }
-  }
-
-  /**
-   * Inicia el reconocimiento de voz, solicitando permisos si es necesario
-   * @param {Object} options - Opciones opcionales para la configuración
-   * @returns {Promise<boolean>} - Promise que resuelve a true si se inició correctamente
-   */
-  async start(options = {}) {
-    // Actualizar configuración si se proporcionan opciones
-    if (options.silenceThreshold || options.speakingTimeout) {
-      this.configureTimings(options);
-    }
-    
-    // Detener cualquier reconocimiento previo primero
-    this.stop();
-    
-    // Pequeña pausa para asegurar que el reconocimiento anterior se detuvo correctamente
-    await new Promise(resolve => setTimeout(resolve, 400));
-    
-    // Verificar y solicitar permiso si no ha sido otorgado
-    if (!this.permissionGranted) {
-      const permissionGranted = await this.requestMicrophonePermission();
-      if (!permissionGranted) {
-        if (this.onErrorCallback) {
-          this.onErrorCallback('No se otorgó permiso para usar el micrófono');
+/**
+ * Solicita permiso para usar el micrófono con opciones mejoradas
+ * @returns {Promise<boolean>} - Promise que resuelve a true si se otorgó permiso, false en caso contrario
+ */
+async requestMicrophonePermission() {
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    try {
+      // Solicitar acceso al micrófono con configuración óptima para reconocimiento de voz
+      const constraints = {
+        audio: {
+          echoCancellation: true,          // Eliminar eco
+          noiseSuppression: true,          // Suprimir ruido de fondo
+          autoGainControl: true,           // Ajustar volumen automáticamente
+          channelCount: 3,                 // Mono para mejor reconocimiento de voz
+          sampleRate: 48000,               // Alta calidad de muestreo
+          sampleSize: 16                   // 16 bits por muestra para mejor calidad
         }
-        return false;
+      };
+      
+      // En dispositivos móviles, ajustar configuración
+      if (this.isMobileDevice()) {
+        constraints.audio.echoCancellation = this.isAndroidDevice() ? true : false;
+        constraints.audio.noiseSuppression = this.isAndroidDevice() ? true : false;
       }
-    }
-    
-    if (!this.recognition) {
-      const initialized = this.init(options.language || this.recognitionLang);
-      if (!initialized) return false;
-    }
-    
-    // Reiniciar transcripciones
-    this.finalTranscript = '';
-    this.interimTranscript = '';
-    
-    // Resetear contador de intentos
-    this.restartAttempts = 0;
-    
-    return this.startRecognition();
-  }
-
-  /**
-   * Detiene el reconocimiento de voz
-   */
-  stop() {
-    // Limpiar temporizador de silencio
-    if (this.silenceTimer) {
-      clearTimeout(this.silenceTimer);
-      this.silenceTimer = null;
-    }
-    
-    // Detener análisis de audio
-    this.stopAudioAnalysis();
-    
-    if (this.recognition && this.isListening) {
-      try {
-        this.recognition.stop();
-        this.isListening = false;
-        
-        // También detener el stream del micrófono si existe
-        if (this.microphoneStream) {
-          this.microphoneStream.getTracks().forEach(track => track.stop());
-        }
-        
-        return true;
-      } catch (error) {
-        this.isListening = false;
-        return false;
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      // Almacenar la referencia al stream para poder detenerlo después
+      this.microphoneStream = stream;
+      this.permissionGranted = true;
+      
+      // Notificar que el permiso fue concedido si hay un callback
+      if (this.permissionCallback) {
+        this.permissionCallback(true);
       }
+      
+      return true;
+    } catch (error) {
+      this.permissionGranted = false;
+      // Notificar que el permiso fue denegado si hay un callback
+      if (this.permissionCallback) {
+        this.permissionCallback(false, error.message);
+      }
+      
+      return false;
     }
+  } else {
     return false;
   }
+}
 
-  /**
-   * Establece el callback para cuando se recibe un resultado
-   * @param {Function} callback - Función a llamar con el resultado
-   */
-  onResult(callback) {
-    this.onResultCallback = callback;
-  }
+/**
+ * Establece el callback para cuando cambia el estado del permiso del micrófono
+ * @param {Function} callback - Función a llamar cuando cambia el estado del permiso
+ */
+onPermissionChange(callback) {
+  this.permissionCallback = callback;
+}
 
-  /**
-   * Establece el callback para cuando termina el reconocimiento
-   * @param {Function} callback - Función a llamar al terminar
-   */
-  onEnd(callback) {
-    this.onEndCallback = callback;
-  }
-
-  /**
-   * Establece el callback para cuando ocurre un error
-   * @param {Function} callback - Función a llamar en caso de error
-   */
-  onError(callback) {
-    this.onErrorCallback = callback;
-  }
-
-  /**
-   * Verifica si el navegador soporta reconocimiento de voz
-   * @returns {boolean} - true si es soportado, false si no
-   */
-  isSupportedByBrowser() {
-    return typeof window !== 'undefined' && 
-      ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window);
+/**
+ * Configura los tiempos de espera para el reconocimiento de voz
+ * @param {Object} options - Opciones de configuración
+ * @param {number} options.silenceThreshold - Tiempo en ms para considerar silencio (por defecto 3000ms)
+ * @param {number} options.speakingTimeout - Tiempo máximo de espera para una respuesta (por defecto 8000ms)
+ */
+configureTimings(options = {}) {
+  if (options.silenceThreshold && typeof options.silenceThreshold === 'number') {
+    this.silenceThreshold = options.silenceThreshold;
   }
   
-  /**
-   * Devuelve información sobre las capacidades de reconocimiento de voz
-   * @returns {Object} - Objeto con información de capacidades
-   */
-  getRecognitionCapabilities() {
-    return {
-      isSupported: this.isSupportedByBrowser(),
-      isMobile: this.isMobileDevice(),
-      isAndroid: this.isAndroidDevice(),
-      browser: navigator.userAgent,
-      usesWebkit: 'webkitSpeechRecognition' in window,
-      usesStandard: 'SpeechRecognition' in window
-    };
+  if (options.speakingTimeout && typeof options.speakingTimeout === 'number') {
+    this.speakingTimeout = options.speakingTimeout;
+  }
+}
+
+/**
+ * Inicia el reconocimiento de voz, solicitando permisos si es necesario
+ * @param {Object} options - Opciones opcionales para la configuración
+ * @returns {Promise<boolean>} - Promise que resuelve a true si se inició correctamente
+ */
+async start(options = {}) {
+  // Actualizar configuración si se proporcionan opciones
+  if (options.silenceThreshold || options.speakingTimeout) {
+    this.configureTimings(options);
+  }
+
+
+  
+  // Detener cualquier reconocimiento previo primero
+  this.stop();
+  
+  // Pequeña pausa para asegurar que el reconocimiento anterior se detuvo correctamente
+  await new Promise(resolve => setTimeout(resolve, 700));
+  
+  // Verificar y solicitar permiso si no ha sido otorgado
+  if (!this.permissionGranted) {
+    const permissionGranted = await this.requestMicrophonePermission();
+    if (!permissionGranted) {
+      if (this.onErrorCallback) {
+        this.onErrorCallback('No se otorgó permiso para usar el micrófono');
+      }
+      return false;
+    }
   }
   
-  /**
-   * Ajusta la sensibilidad del reconocimiento de voz
-   * @param {Object} options - Opciones de sensibilidad
-   * @param {number} options.silenceThreshold - Tiempo en ms para considerar silencio (3000-10000)
-   * @param {number} options.speakingTimeout - Tiempo máximo de espera para una respuesta (5000-30000)
-   */
-  setSensitivity(options = {}) {
-    // Valores predefinidos para diferentes sensibilidades
-    const sensitivities = {
-      high: { silenceThreshold: 10000, speakingTimeout: 15000 },
-      medium: { silenceThreshold: 10000, speakingTimeout: 45000 },
-      low: { silenceThreshold: 10000, speakingTimeout: 15000 },
-      veryLow: { silenceThreshold: 30000, speakingTimeout: 45000 }
-    };
-    
-    let config = { ...sensitivities.medium };  // Valor por defecto
-    
-    // Si se proporciona un preset de sensibilidad
-    if (options.preset && sensitivities[options.preset]) {
-      config = { ...sensitivities[options.preset] };
-    }
-    
-    // Sobrescribir con valores específicos si se proporcionan
-    if (options.silenceThreshold) config.silenceThreshold = options.silenceThreshold;
-    if (options.speakingTimeout) config.speakingTimeout = options.speakingTimeout;
-    
-    // Aplicar configuración
-    this.configureTimings(config);
-    
-    return config;
+  if (!this.recognition) {
+    const initialized = this.init(options.language || this.recognitionLang);
+    if (!initialized) return false;
   }
+  
+  // Reiniciar transcripciones
+  this.finalTranscript = '';
+  this.interimTranscript = '';
+  
+  // Resetear contador de intentos
+  this.restartAttempts = 0;
+  
+  return this.startRecognition();
+}
 
-  /**
-   * Configura timing específico para distintos dispositivos
-   * @param {Object} config - Configuración de tiempos
-   */
-  setTimingConfig(config) {
-    if (config.silenceThreshold) this.silenceThreshold = config.silenceThreshold;
-    if (config.speakingTimeout) this.speakingTimeout = config.speakingTimeout;
-    if (config.volumeThreshold) this.volumeThreshold = config.volumeThreshold;
+/**
+ * Detiene el reconocimiento de voz
+ */
+stop() {
+  // Limpiar temporizador de silencio
+  if (this.silenceTimer) {
+    clearTimeout(this.silenceTimer);
+    this.silenceTimer = null;
   }
-
-  /**
-   * Activa modo específico para Android y dispositivos móviles
-   * @param {boolean} isActive - Si activar o no el modo móvil
-   */
-  setMobileMode(isActive) {
-    if (isActive) {
-      // Configuración optimizada para dispositivos móviles
-      this.silenceThreshold = 3500;    // Tiempo más largo para móviles
-      this.volumeThreshold = 5;        // Umbral más bajo para mayor sensibilidad
+  
+  // Detener análisis de audio
+  this.stopAudioAnalysis();
+  
+  if (this.recognition && this.isListening) {
+    try {
+      this.recognition.stop();
+      this.isListening = false;
       
-      if (this.recognition) {
-        // Ajustes específicos para reconocimiento en móviles
-        this.recognition.maxAlternatives = 2;       // Menos alternativas para ahorrar recursos
-        this.recognition.interimResults = true;     // Mantener resultados intermedios para mejor UX
+      // También detener el stream del micrófono si existe
+      if (this.microphoneStream) {
+        this.microphoneStream.getTracks().forEach(track => track.stop());
       }
       
-      // Si es Android, aplicar ajustes específicos
-      if (this.isAndroidDevice()) {
-        this.silenceThreshold = 4000;  // Android necesita más tiempo por latencia
-        this.volumeThreshold = 4;      // Android tiene sensibilidad diferente
-      }
-    } else {
-      // Configuración para escritorio
-      this.silenceThreshold = 2500;    // Valor por defecto
-      this.volumeThreshold = 7;        // Valor por defecto
-      
-      if (this.recognition) {
-        this.recognition.maxAlternatives = 3;       // Más alternativas en escritorio
-      }
+      return true;
+    } catch (error) {
+      this.isListening = false;
+      return false;
     }
   }
+  return false;
+}
+
+/**
+ * Establece el callback para cuando se recibe un resultado
+ * @param {Function} callback - Función a llamar con el resultado
+ */
+onResult(callback) {
+  this.onResultCallback = callback;
+}
+
+/**
+ * Establece el callback para cuando termina el reconocimiento
+ * @param {Function} callback - Función a llamar al terminar
+ */
+onEnd(callback) {
+  this.onEndCallback = callback;
+}
+
+/**
+ * Establece el callback para cuando ocurre un error
+ * @param {Function} callback - Función a llamar en caso de error
+ */
+onError(callback) {
+  this.onErrorCallback = callback;
+}
+
+/**
+ * Verifica si el navegador soporta reconocimiento de voz
+ * @returns {boolean} - true si es soportado, false si no
+ */
+isSupportedByBrowser() {
+  return typeof window !== 'undefined' && 
+    ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window);
+}
+
+/**
+ * Devuelve información sobre las capacidades de reconocimiento de voz
+ * @returns {Object} - Objeto con información de capacidades
+ */
+getRecognitionCapabilities() {
+  return {
+    isSupported: this.isSupportedByBrowser(),
+    isMobile: this.isMobileDevice(),
+    isAndroid: this.isAndroidDevice(),
+    browser: navigator.userAgent,
+    usesWebkit: 'webkitSpeechRecognition' in window,
+    usesStandard: 'SpeechRecognition' in window
+  };
+}
+
+/**
+ * Ajusta la sensibilidad del reconocimiento de voz
+ * @param {Object} options - Opciones de sensibilidad
+ * @param {number} options.silenceThreshold - Tiempo en ms para considerar silencio (3000-10000)
+ * @param {number} options.speakingTimeout - Tiempo máximo de espera para una respuesta (5000-30000)
+ */
+setSensitivity(options = {}) {
+  // Valores predefinidos para diferentes sensibilidades
+  const sensitivities = {
+    high: { silenceThreshold: 10000, speakingTimeout: 15000 },
+    medium: { silenceThreshold: 10000, speakingTimeout: 45000 },
+    low: { silenceThreshold: 10000, speakingTimeout: 15000 },
+    veryLow: { silenceThreshold: 30000, speakingTimeout: 45000 }
+  };
+  
+  let config = { ...sensitivities.medium };  // Valor por defecto
+  
+  // Si se proporciona un preset de sensibilidad
+  if (options.preset && sensitivities[options.preset]) {
+    config = { ...sensitivities[options.preset] };
+  }
+  
+  // Sobrescribir con valores específicos si se proporcionan
+  if (options.silenceThreshold) config.silenceThreshold = options.silenceThreshold;
+  if (options.speakingTimeout) config.speakingTimeout = options.speakingTimeout;
+  
+  // Aplicar configuración
+  this.configureTimings(config);
+  
+  return config;
+}
+
+/**
+ * Configura timing específico para distintos dispositivos
+ * @param {Object} config - Configuración de tiempos
+ */
+setTimingConfig(config) {
+  if (config.silenceThreshold) this.silenceThreshold = config.silenceThreshold;
+  if (config.speakingTimeout) this.speakingTimeout = config.speakingTimeout;
+  if (config.volumeThreshold) this.volumeThreshold = config.volumeThreshold;
+}
+
+/**
+ * Activa modo específico para Android y dispositivos móviles
+ * @param {boolean} isActive - Si activar o no el modo móvil
+ */
+setMobileMode(isActive) {
+  if (isActive) {
+    // Configuración optimizada para dispositivos móviles
+    this.silenceThreshold = 7000;    // Tiempo más largo para móviles (antes 3500)
+    this.volumeThreshold = 3;        // Umbral más bajo para mayor sensibilidad (antes 5)
+    
+    if (this.recognition) {
+      // Ajustes específicos para reconocimiento en móviles
+      this.recognition.maxAlternatives = 2;       // Menos alternativas para ahorrar recursos
+      this.recognition.interimResults = true;     // Mantener resultados intermedios para mejor UX
+    }
+    
+    // Si es Android, aplicar ajustes específicos
+    if (this.isAndroidDevice()) {
+      this.silenceThreshold = 8000;  // Android necesita más tiempo por latencia (antes 40000, era excesivo)
+      this.volumeThreshold = 2;      // Android tiene sensibilidad diferente (antes 3)
+    }
+  } else {
+    // Configuración para escritorio
+    this.silenceThreshold = 5000;    // Valor por defecto (antes 35000, era excesivo)
+    this.volumeThreshold = 4;        // Valor por defecto (antes 3)
+    
+    if (this.recognition) {
+      this.recognition.maxAlternatives = 3;       // Más alternativas en escritorio
+    }
+  }
+}
+
+/**
+ * Método auxiliar para precalentar el sistema de síntesis de voz
+ * @returns {boolean} - true si se pudo precalentar, false en caso contrario
+ */
+preloadSpeechSynthesis() {
+  // Técnica de "precalentamiento" del motor de síntesis
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    // Crear y hablar un mensaje vacío para activar el sistema
+    const warmupUtterance = new SpeechSynthesisUtterance('');
+    warmupUtterance.volume = 0; // Silenciar para que no sea audible
+    warmupUtterance.rate = 1;
+    window.speechSynthesis.speak(warmupUtterance);
+    
+    // Cancelar después de un breve tiempo
+    setTimeout(() => {
+      window.speechSynthesis.cancel();
+    }, 100);
+    
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Método auxiliar para la primera síntesis, con precalentamiento
+ * @param {string} text - Texto a leer
+ * @param {Function} onStarted - Callback cuando inicia la síntesis
+ * @param {Function} onEnded - Callback cuando termina la síntesis
+ * @param {Function} onError - Callback en caso de error
+ */
+firstSpeech(text, onStarted, onEnded, onError) {
+  // Primero precalentar el sistema
+  this.preloadSpeechSynthesis();
+  
+  // Esperar un breve momento y luego hablar
+  setTimeout(() => {
+    this.speakText(text, onStarted, onEnded, onError);
+  }, 100);
+}
 }
 
 // Exportar una instancia única del servicio

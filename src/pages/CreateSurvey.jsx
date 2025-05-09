@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../utils/firebase';
+// eslint-disable-next-line no-unused-vars
+import { auth } from '../utils/firebase'; // Guardado para futuras validaciones de usuario
 import { SurveyService } from '../services/apiService'; // Importación corregida
 
 const questionTypes = [

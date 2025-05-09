@@ -135,12 +135,12 @@ const SimpleVoice = ({ text, onEnd, autoSpeak = true }) => {
     }
     
     return cleanup;
-  }, [text]);
+  }, [text, autoSpeak, speak, cleanup]);
   
   // Efecto de limpieza al desmontar
   useEffect(() => {
     return cleanup;
-  }, []);
+  }, [cleanup]);
   
   return (
     <div className={`voice-synthesis ${isSpeaking ? 'speaking' : ''}`}>

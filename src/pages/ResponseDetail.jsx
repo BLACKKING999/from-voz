@@ -192,7 +192,8 @@ const ResponseDetail = () => {
         )
 
       case "single":
-        const options = getQuestionOptions(answer.questionId)
+        // eslint-disable-next-line no-unused-vars
+        const options = getQuestionOptions(answer.questionId) // Guardado para futuras mejoras de UI
         return <span className="px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full font-medium">{value}</span>
 
       case "multiple":

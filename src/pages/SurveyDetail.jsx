@@ -74,11 +74,13 @@ const SurveyDetail = () => {
   const navigate = useNavigate()
   const [survey, setSurvey] = useState(null)
   const [responses, setResponses] = useState([])
-  const [analysis, setAnalysis] = useState(null)
+  // eslint-disable-next-line no-unused-vars
+  const [analysis, setAnalysis] = useState(null) // Guardado para futuras implementaciones
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState("results")
-  const user = auth.currentUser
+  // eslint-disable-next-line no-unused-vars
+  const user = auth.currentUser // Guardado para verificaciones de permisos futuras
 
   useEffect(() => {
     const fetchSurvey = async () => {
@@ -177,7 +179,7 @@ const SurveyDetail = () => {
     }
 
     fetchSurvey()
-  }, [surveyId])
+  }, [surveyId, survey]) // Añadimos survey como dependencia
 
   // Format date in a readable format
   const formatDate = (dateString) => {
