@@ -31,9 +31,9 @@ class AudioService {
     // Configuración mejorada para el reconocimiento de voz
     this.silenceThreshold = 2500; // Tiempo en ms para considerar silencio (aumentado para móviles)
     this.speakingTimeout = 12000;  // Tiempo en ms para esperar respuesta (aumentado para móviles)
-    this.volumeThreshold = 3; // umbral de volumen para considerar que hay voz (reducido para mayor sensibilidad)
+    this.volumeThreshold = 7; // umbral de volumen para considerar que hay voz (reducido para mayor sensibilidad)
     this.restartAttempts = 0;     // Contador de intentos de reinicio
-    this.maxRestartAttempts = 3;  // Máximo número de reintentos
+    this.maxRestartAttempts = 8;  // Máximo número de reintentos
     this.silenceTimer = null;     // Timer para detectar silencio
     this.audioContext = null;     // Contexto de audio para análisis
     this.analyser = null;         // Analizador de audio
@@ -71,8 +71,8 @@ class AudioService {
     
     // Aplicar configuración específica para dispositivos móviles
     if (this.isMobileDevice()) {
-      this.silenceThreshold = 3000; // Dar aún más tiempo en móviles antes de considerar silencio
-      this.speakingTimeout = 15000; // Mayor tiempo máximo de espera en móviles
+      this.silenceThreshold = 15000; // Dar aún más tiempo en móviles antes de considerar silencio
+      this.speakingTimeout = 30000; // Mayor tiempo máximo de espera en móviles
       
       if (this.isAndroidDevice()) {
         this.volumeThreshold = 2; // Umbral aún más bajo para Android
@@ -796,10 +796,10 @@ class AudioService {
   setMobileMode(isActive) {
     if (isActive) {
       this.silenceThreshold = 3500; // Tiempo más largo para móviles
-      this.volumeThreshold = 2; // Umbral más bajo para Android
+      this.volumeThreshold = 5; // Umbral más bajo para Android
     } else {
       this.silenceThreshold = 2500; // Valor por defecto
-      this.volumeThreshold = 3; // Valor por defecto
+      this.volumeThreshold = 7; // Valor por defecto
     }
   }
 }
