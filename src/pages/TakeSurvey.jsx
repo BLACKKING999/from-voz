@@ -190,7 +190,7 @@ const TakeSurvey = () => {
       // Pequeña pausa antes de hablar
       speakTimeoutRef.current = setTimeout(() => {
         setConversationState("speaking")
-        setConversationMessage("Hablando: " + text.substring(0, 40) + (text.length > 40 ? "..." : ""))
+        setConversationMessage("Hablando: " + text.substring(0, 30) + (text.length > 30 ? "..." : ""))
 
         audioService.speakText(
           text,

@@ -30,7 +30,7 @@ class AudioService {
     this.onErrorCallback = null;
     
     // Configuración mejorada para el reconocimiento de voz
-    this.silenceThreshold = 15000;   // Aumentado de 2500 a 5000ms
+    this.silenceThreshold = 5000;   // Aumentado de 2500 a 5000ms
     this.speakingTimeout = 60000;   // Ya es adecuado
     this.volumeThreshold = 5;       // Ajustado de 7 a 5 para mayor sensibilidad
     this.restartAttempts = 0;     // Contador de intentos de reinicio
@@ -73,7 +73,7 @@ class AudioService {
     
     // Aplicar configuración específica para dispositivos móviles
     if (this.isMobileDevice()) {
-      this.silenceThreshold = 35000;
+      this.silenceThreshold = 15000;
       this.speakingTimeout = 60000;
       
       if (this.isAndroidDevice()) {
@@ -145,7 +145,7 @@ class AudioService {
       
       setTimeout(() => {
         this.speakText(text, onStarted, onEnded, onError);
-      }, 100);
+      }, 200);
       
       return () => {};
     }
@@ -271,7 +271,7 @@ class AudioService {
     // Configurar reconocimiento con opciones mejoradas
     this.recognition.continuous = true;        // Reconocimiento continuo para una mejor experiencia
     this.recognition.interimResults = true;    // Obtener resultados mientras el usuario habla
-    this.recognition.maxAlternatives = 4;      // Obtener más alternativas para mejorar precisión
+    this.recognition.maxAlternatives = 3;      // Obtener más alternativas para mejorar precisión
     this.recognition.lang = language;
     
     // Guardar referencia al objeto para usar en las funciones de callback
@@ -375,7 +375,7 @@ class AudioService {
                 }
               }
             }
-          }, 35000);  // Incrementado a 1.5s para dar más tiempo
+          }, 15000);  // Incrementado a 1.5s para dar más tiempo
         } else {
           if (self.onErrorCallback) {
             self.onErrorCallback('max_restarts');
@@ -398,7 +398,7 @@ class AudioService {
           } catch (e) {
             // Error silencioso
           }
-        }, 2000);
+        }, 1000);
       }
     };
     
@@ -456,7 +456,7 @@ class AudioService {
       
       // Crear analizador de audio
       this.analyser = this.audioContext.createAnalyser();
-      this.analyser.fftSize = 300;
+      this.analyser.fftSize = 256;
       
       // Conectar el stream de micrófono al analizador
       const source = this.audioContext.createMediaStreamSource(this.microphoneStream);
@@ -610,7 +610,7 @@ startVolumeMonitoring() {
       consecutiveSilenceFrames++;
       consecutiveVoiceFrames = 0;
     }
-  }, 10); // Comprobar cada 100ms en lugar de 200ms para mayor precisión
+  }, 100); // Comprobar cada 100ms en lugar de 200ms para mayor precisión
 }
 
 /**
@@ -971,7 +971,7 @@ setMobileMode(isActive) {
   if (isActive) {
     // Configuración optimizada para dispositivos móviles
     this.silenceThreshold = 7000;    // Tiempo más largo para móviles (antes 3500)
-    this.volumeThreshold = 2;        // Umbral más bajo para mayor sensibilidad (antes 5)
+    this.volumeThreshold = 3;        // Umbral más bajo para mayor sensibilidad (antes 5)
     
     if (this.recognition) {
       // Ajustes específicos para reconocimiento en móviles
@@ -981,8 +981,8 @@ setMobileMode(isActive) {
     
     // Si es Android, aplicar ajustes específicos
     if (this.isAndroidDevice()) {
-      this.silenceThreshold = 4000;  // Android necesita más tiempo por latencia (antes 40000, era excesivo)
-      this.volumeThreshold = 1;      // Android tiene sensibilidad diferente (antes 3)
+      this.silenceThreshold = 8000;  // Android necesita más tiempo por latencia (antes 40000, era excesivo)
+      this.volumeThreshold = 2;      // Android tiene sensibilidad diferente (antes 3)
     }
   } else {
     // Configuración para escritorio
