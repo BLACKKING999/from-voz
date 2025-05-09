@@ -22,6 +22,8 @@ class AudioService {
     this.microphoneStream = null;
     this.permissionGranted = false;
     this.permissionCallback = null;
+    this.hasSpeechDetected = false;
+    this.hasSoundDetected = false;
     
     // Callbacks
     this.onResultCallback = null;
@@ -293,6 +295,8 @@ class AudioService {
     this.recognitionLang = language;
     this.finalTranscript = '';
     this.interimTranscript = '';
+    this.hasSpeechDetected = false;
+    this.hasSoundDetected = false;
     
     // Crear reconocimiento según disponibilidad en navegador
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -305,15 +309,16 @@ class AudioService {
     
     this.recognition = new SpeechRecognition();
     
-    // Configurar reconocimiento
-    this.recognition.continuous = true;
-    this.recognition.interimResults = true;
+    // Configurar reconocimiento con opciones mejoradas
+    this.recognition.continuous = true;        // Reconocimiento continuo para una mejor experiencia
+    this.recognition.interimResults = true;    // Obtener resultados mientras el usuario habla
+    this.recognition.maxAlternatives = 3;      // Obtener más alternativas para mejorar precisión
     this.recognition.lang = language;
     
     // Guardar referencia al objeto para usar en las funciones de callback
     const self = this;
     
-    // Manejar resultados
+    // Manejar resultados con análisis mejorado
     this.recognition.onresult = function(event) {
       // Procesar resultados
       self.interimTranscript = '';
@@ -321,7 +326,19 @@ class AudioService {
       
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
+          // Analizar todas las alternativas para escoger la mejor
+          let bestAlternative = event.results[i][0].transcript;
+          let highestConfidence = event.results[i][0].confidence;
+          
+          // Recorrer las alternativas para encontrar la de mayor confianza
+          for (let j = 1; j < event.results[i].length; j++) {
+            if (event.results[i][j].confidence > highestConfidence) {
+              bestAlternative = event.results[i][j].transcript;
+              highestConfidence = event.results[i][j].confidence;
+            }
+          }
+          
+          finalTranscript += bestAlternative;
         } else {
           self.interimTranscript += event.results[i][0].transcript;
         }
@@ -342,35 +359,33 @@ class AudioService {
       }
     };
     
+    // Evento cuando termina el reconocimiento (mejorado)
     this.recognition.onend = function() {
       // Detener análisis de audio si está activo
       self.stopAudioAnalysis();
       
-      // Si estábamos escuchando activamente y hay un temporizador de silencio,
-      // esperamos un poco más antes de considerar que realmente terminó
-      if (self.isListening && self.silenceTimer) {
-        // Esperar un poco más antes de considerar realmente finalizado
-        setTimeout(() => {
-          self.isListening = false;
-          
-          // Notificar finalización
-          if (self.onEndCallback) {
-            self.onEndCallback(self.finalTranscript);
-          }
-          
-          // Resetear intentos de reinicio
-          self.restartAttempts = 0;
-        }, 1000);
-      } else {
+      const finalizeRecognition = () => {
         self.isListening = false;
+        self.hasSpeechDetected = false;
+        self.hasSoundDetected = false;
         
-        // Notificar finalización
+        // Notificar finalización con el resultado completo
         if (self.onEndCallback) {
           self.onEndCallback(self.finalTranscript);
         }
         
         // Resetear intentos de reinicio
         self.restartAttempts = 0;
+      };
+      
+      // Si estábamos escuchando activamente y hay un temporizador de silencio
+      // o si se detectó voz, esperamos un poco más antes de finalizar
+      if ((self.isListening && self.silenceTimer) || self.hasSpeechDetected) {
+        // Esperar un poco más antes de considerar realmente finalizado
+        // para capturar posibles fragmentos finales
+        setTimeout(finalizeRecognition, 1000);
+      } else {
+        finalizeRecognition();
       }
     };
     
@@ -431,6 +446,36 @@ class AudioService {
     this.recognition.onaudiostart = function() {
       // Iniciar análisis de audio si es posible
       self.setupAudioAnalysis();
+    };
+    
+    this.recognition.onsoundstart = function() {
+      self.hasSoundDetected = true;
+      console.log('Some sound is being detected');
+    };
+    
+    this.recognition.onsoundend = function() {
+      console.log('Sound has stopped being detected');
+    };
+    
+    this.recognition.onspeechstart = function() {
+      self.hasSpeechDetected = true;
+      self.resetSilenceTimer(); // Reiniciar el temporizador de silencio
+      console.log('Speech has been detected');
+    };
+    
+    this.recognition.onspeechend = function() {
+      console.log('Speech has stopped being detected');
+      // Iniciar un temporizador para permitir pausas naturales en el habla
+      // sin detener prematuramente el reconocimiento
+      self.resetSilenceTimer(true);
+    };
+    
+    this.recognition.onaudioend = function() {
+      console.log('Audio capturing ended');
+    };
+    
+    this.recognition.onstart = function() {
+      console.log('Recognition service has started');
     };
     
     return true;
@@ -524,21 +569,29 @@ class AudioService {
 
   /**
    * Reinicia el temporizador de silencio
+   * @param {boolean} isSpeechEnd - Indica si se llama desde el evento speechend
    */
-  resetSilenceTimer() {
+  resetSilenceTimer(isSpeechEnd = false) {
     // Limpiar temporizador existente
     if (this.silenceTimer) {
       clearTimeout(this.silenceTimer);
       this.silenceTimer = null;
     }
     
+    // Si se detectó el final del habla, usar un umbral más corto
+    // para evitar esperas largas cuando ya no hay voz
+    const threshold = isSpeechEnd ? 
+      Math.min(2000, this.silenceThreshold / 2) : // Mitad del tiempo normal o 2 segundos, lo que sea menor
+      this.silenceThreshold;
+    
     // Configurar nuevo temporizador
     this.silenceTimer = setTimeout(() => {
       // Si seguimos escuchando, es tiempo de considerar que el usuario ha terminado
       if (this.isListening) {
+        console.log('Silencio detectado, deteniendo reconocimiento');
         this.stop();
       }
-    }, this.silenceThreshold);
+    }, threshold);
   }
 
   /**
@@ -547,6 +600,11 @@ class AudioService {
   startRecognition() {
     if (this.recognition) {
       try {
+        // Reiniciar indicadores de detección de sonido y habla
+        this.hasSpeechDetected = false;
+        this.hasSoundDetected = false;
+        
+        // Iniciar el reconocimiento
         this.recognition.start();
         this.isListening = true;
         
@@ -554,17 +612,30 @@ class AudioService {
         this.resetSilenceTimer();
         
         // Configurar temporizador de tiempo máximo de espera
+        // con verificación inteligente de actividad
         setTimeout(() => {
           if (this.isListening) {
-            // No detener directamente, sino revisar si hay actividad
-            if (!this.finalTranscript && !this.interimTranscript) {
+            // Verificar si hay actividad o si se ha detectado voz
+            if (!this.finalTranscript && !this.interimTranscript && !this.hasSpeechDetected) {
+              console.log('Tiempo máximo de espera alcanzado sin actividad vocal detectada');
               this.stop();
+            } else if (this.hasSpeechDetected && !this.finalTranscript) {
+              // Se detectó habla pero aún no hay resultados finales
+              // Extender el tiempo para permitir completar el reconocimiento
+              console.log('Extendiendo tiempo de espera porque se detectó voz');
+              setTimeout(() => {
+                if (this.isListening && !this.finalTranscript) {
+                  console.log('Finalizando después de la extensión de tiempo');
+                  this.stop();
+                }
+              }, this.speakingTimeout / 2); // Mitad del tiempo original como extensión
             }
           }
         }, this.speakingTimeout);
         
         return true;
       } catch (error) {
+        console.error('Error al iniciar reconocimiento:', error);
         this.isListening = false;
         return false;
       }
@@ -579,15 +650,23 @@ class AudioService {
   async requestMicrophonePermission() {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
-        // Solicitar acceso al micrófono con configuración óptima
+        // Solicitar acceso al micrófono con configuración óptima para reconocimiento de voz
         const constraints = {
           audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1  // Mono para mejor reconocimiento de voz
+            echoCancellation: true,          // Eliminar eco
+            noiseSuppression: true,          // Suprimir ruido de fondo
+            autoGainControl: true,           // Ajustar volumen automáticamente
+            channelCount: 1,                 // Mono para mejor reconocimiento de voz
+            sampleRate: 48000,               // Alta calidad de muestreo
+            sampleSize: 16                   // 16 bits por muestra para mejor calidad
           }
         };
+        
+        // En dispositivos móviles, ajustar configuración
+        if (this.isMobileDevice()) {
+          constraints.audio.echoCancellation = this.isAndroidDevice() ? true : false;
+          constraints.audio.noiseSuppression = this.isAndroidDevice() ? true : false;
+        }
         
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         
@@ -748,6 +827,21 @@ class AudioService {
   }
   
   /**
+   * Devuelve información sobre las capacidades de reconocimiento de voz
+   * @returns {Object} - Objeto con información de capacidades
+   */
+  getRecognitionCapabilities() {
+    return {
+      isSupported: this.isSupportedByBrowser(),
+      isMobile: this.isMobileDevice(),
+      isAndroid: this.isAndroidDevice(),
+      browser: navigator.userAgent,
+      usesWebkit: 'webkitSpeechRecognition' in window,
+      usesStandard: 'SpeechRecognition' in window
+    };
+  }
+  
+  /**
    * Ajusta la sensibilidad del reconocimiento de voz
    * @param {Object} options - Opciones de sensibilidad
    * @param {number} options.silenceThreshold - Tiempo en ms para considerar silencio (3000-10000)
@@ -795,11 +889,29 @@ class AudioService {
    */
   setMobileMode(isActive) {
     if (isActive) {
-      this.silenceThreshold = 3500; // Tiempo más largo para móviles
-      this.volumeThreshold = 5; // Umbral más bajo para Android
+      // Configuración optimizada para dispositivos móviles
+      this.silenceThreshold = 3500;    // Tiempo más largo para móviles
+      this.volumeThreshold = 5;        // Umbral más bajo para mayor sensibilidad
+      
+      if (this.recognition) {
+        // Ajustes específicos para reconocimiento en móviles
+        this.recognition.maxAlternatives = 2;       // Menos alternativas para ahorrar recursos
+        this.recognition.interimResults = true;     // Mantener resultados intermedios para mejor UX
+      }
+      
+      // Si es Android, aplicar ajustes específicos
+      if (this.isAndroidDevice()) {
+        this.silenceThreshold = 4000;  // Android necesita más tiempo por latencia
+        this.volumeThreshold = 4;      // Android tiene sensibilidad diferente
+      }
     } else {
-      this.silenceThreshold = 2500; // Valor por defecto
-      this.volumeThreshold = 7; // Valor por defecto
+      // Configuración para escritorio
+      this.silenceThreshold = 2500;    // Valor por defecto
+      this.volumeThreshold = 7;        // Valor por defecto
+      
+      if (this.recognition) {
+        this.recognition.maxAlternatives = 3;       // Más alternativas en escritorio
+      }
     }
   }
 }
