@@ -304,37 +304,53 @@ const analyzeYesNo = (text) => {
   if (!text) return { isYes: false, isNo: false, confidence: 0 }
 
   try {
-    // Convertir el array de palabras afirmativas a un Set para búsqueda más eficiente
+    // Debug info - importante para identificar problemas
+    console.log("analyzeYesNo recibió texto:", text);
+
+    // Definir palabras afirmativas (todas en minúscula para facilitar la comparación)
     const yesWords = new Set([
-      "sí",
-      "si",
-      "claro",
-      "por supuesto",
-      "afirmativo",
-      "efectivamente",
-      "exacto",
-      "correcto",
-      "ok",
-      "vale",
-      "bueno",
-      "cierto",
-      "verdad",
-      "desde luego",
-      "así es",
-      "sin duda",
-      "obviamente",
-      "naturalmente",
-      "dale",
-      "órale",
-      "va",
-      "venga",
-      "vamos",
-      "ándale",
-      "seguro",
-      "sale",
+      // Palabras básicas de afirmación (las más comunes primero y en minúscula)
+      "sí", "si", "s", "claro", "afirmativo", "por supuesto", 
+      "efectivamente", "exacto", "correcto", "ok", "vale",
+      
+      // Expresiones coloquiales
+      "bueno", "cierto", "verdad", "desde luego", "así es", 
+      "sin duda", "obviamente", "naturalmente", "dale", "órale",
+      
+      // Expresiones informales
+      "va", "venga", "vamos", "ándale", "seguro", 
+      "sale", "va que va", "va bien", "de acuerdo", "estoy de acuerdo",
+      
+      // Afirmaciones enfáticas
+      "clarísimo", "totalmente", "absolutamente", "completamente", "definitivamente",
+      "indudablemente", "innegablemente", "positivamente", "ciertamente", "sin lugar a dudas",
+      
+      // Respuestas formales
+      "en efecto", "efectivamente", "precisamente", "justamente", "evidentemente",
+      "indiscutiblemente", "incuestionablemente", "con certeza", "sin problema", "confirmo",
+      
+      // Expresiones regionales
+      "ajá", "simón", "nel pastel", "ya tú sabes", "chévere",
+      "dale pues", "pos sí", "faltaba más", "cómo no", "claro que sí",
+      
+      // Frases coloquiales
+      "por supuestísimo", "ya lo creo", "ni hablar", "no hay duda", "por descontado",
+      "como dices", "dalo por hecho", "ya está", "no se hable más", "sin rechistar",
+      
+      // Expresiones formales adicionales
+      "concedido", "aprobado", "aceptado", "confirmado", "ratificado",
+      "autorizado", "garantizado", "asegurado", "verificado", "validado",
+      
+      // Expresiones cotidianas
+      "bien dicho", "tal cual", "así mismo", "eso es", "exactamente",
+      "así es", "como no", "ya ves", "entendido", "captado",
+      
+      // Expresiones de consentimiento
+      "adelante", "procede", "sigue", "continúa", "prosigue",
+      "avanza", "en marcha", "vamos allá", "hagámoslo", "empecemos"
     ])
 
-    // Palabras negativas en español
+    // Palabras negativas en español (todas en minúsculas)
     const noWords = new Set([
       "no",
       "nunca",
@@ -348,7 +364,6 @@ const analyzeYesNo = (text) => {
       "tampoco",
       "ni hablar",
       "que va",
-      "en absoluto",
       "de ningun modo",
       "de ningún modo",
       "ni modo",
@@ -361,20 +376,40 @@ const analyzeYesNo = (text) => {
       "ni lo sueñes",
     ])
 
+    // Log para debug
+    console.log("Conjunto de palabras afirmativas:", [...yesWords].slice(0, 5));
+    
     // Buscar coincidencias y acumular peso para analizar respuestas
     let yesWeight = 0 // Para calcular confianza
     let noWeight = 0 // Para calcular confianza
 
+    // Normalizar el texto para comparación
     const lowerText = text.toLowerCase()
     const normalizedText = normalizeText(lowerText)
+    console.log("Texto normalizado para análisis:", normalizedText);
+    
+    // Verificaciones directas para casos comunes
+    if (normalizedText === "si" || normalizedText === "sí" || normalizedText === "s") {
+      console.log("Detección directa de 'sí' simple");
+      return { isYes: true, isNo: false, confidence: 1, isTie: false };
+    }
+    
+    if (normalizedText === "no" || normalizedText === "n") {
+      console.log("Detección directa de 'no' simple");
+      return { isYes: false, isNo: true, confidence: 1, isTie: false };
+    }
+    
+    // Dividir en palabras para análisis detallado
     const words = normalizedText.split(/\s+/)
+    console.log("Palabras a analizar:", words);
 
-    // Análisis más eficiente por palabras
+    // Análisis por palabras individuales
     for (const word of words) {
       if (word.length < 2) continue // Ignorar palabras muy cortas
 
       // Verificar palabras afirmativas
       if (yesWords.has(word)) {
+        console.log(`Palabra afirmativa encontrada: '${word}'`);
         yesWeight += 1
         // Más peso si está al inicio
         if (words[0] === word) {
@@ -384,6 +419,7 @@ const analyzeYesNo = (text) => {
 
       // Verificar palabras negativas
       if (noWords.has(word)) {
+        console.log(`Palabra negativa encontrada: '${word}'`);
         noWeight += 1
         // Más peso si está al inicio
         if (words[0] === word) {
@@ -406,24 +442,78 @@ const analyzeYesNo = (text) => {
 
     for (const { pattern, isNo: patternIsNo, isYes: patternIsYes, weight } of complexPatterns) {
       if (new RegExp(pattern, "i").test(normalizedText)) {
+        console.log(`Patrón especial encontrado: '${pattern}'`);
         if (patternIsYes) yesWeight += weight
         if (patternIsNo) noWeight += weight
       }
     }
+    
+    console.log(`Pesos calculados - Afirmativo: ${yesWeight}, Negativo: ${noWeight}`);
 
-    // Determinar resultado
-    const isYes = yesWeight > 0 && yesWeight > noWeight
-    const isNo = noWeight > 0 && noWeight >= yesWeight
-
-    // Calcular confianza (0-1)
-    let confidence = 0
-    if (isYes) {
-      confidence = Math.min(yesWeight / 3, 1)
-    } else if (isNo) {
-      confidence = Math.min(noWeight / 3, 1)
+    // Verificación adicional para casos en que solo se dice "sí" o "no"
+    if (normalizedText.includes("si") || normalizedText.includes("sí")) {
+      console.log("Incluye 'sí' - ajustando peso afirmativo");
+      // Asegurar que tenga al menos algo de peso positivo
+      yesWeight = Math.max(yesWeight, 1);
+    }
+    
+    if (normalizedText.includes("no")) {
+      console.log("Incluye 'no' - ajustando peso negativo");
+      // Asegurar que tenga al menos algo de peso negativo
+      noWeight = Math.max(noWeight, 1);
     }
 
-    return { isYes, isNo, confidence }
+    // Regla más simple: si hay algún peso afirmativo y no hay peso negativo, es "sí"
+    if (yesWeight > 0 && noWeight === 0) {
+      console.log("Detección simple: es afirmativo");
+      return {
+        isYes: true,
+        isNo: false,
+        confidence: Math.min(yesWeight / 2, 1),
+        isTie: false
+      };
+    }
+    
+    // Si hay algún peso negativo y no hay peso afirmativo, es "no"
+    if (noWeight > 0 && yesWeight === 0) {
+      console.log("Detección simple: es negativo");
+      return {
+        isYes: false,
+        isNo: true,
+        confidence: Math.min(noWeight / 2, 1),
+        isTie: false
+      };
+    }
+    
+    // Si hay ambos pesos, decidir por el mayor
+    if (yesWeight > 0 && noWeight > 0) {
+      if (yesWeight > noWeight) {
+        console.log("Detección de conflicto: mayor peso afirmativo");
+        return {
+          isYes: true,
+          isNo: false,
+          confidence: Math.min((yesWeight - noWeight) / 2, 0.8),
+          isTie: false
+        };
+      } else {
+        console.log("Detección de conflicto: mayor peso negativo");
+        return {
+          isYes: false,
+          isNo: true,
+          confidence: Math.min((noWeight - yesWeight) / 2, 0.8),
+          isTie: false
+        };
+      }
+    }
+    
+    // Si no se detectó nada, no es ni sí ni no
+    console.log("No se detectó ni sí ni no");
+    return {
+      isYes: false,
+      isNo: false,
+      confidence: 0,
+      isTie: false
+    }
   } catch (error) {
     console.error("Error al analizar respuesta sí/no:", error)
     return { isYes: false, isNo: false, confidence: 0 }
@@ -772,14 +862,19 @@ export const processResponse = (text, questionType, options = []) => {
 
     switch (questionType) {
       case "yesno":
+        // Usar directamente el resultado del análisis de sí/no sin considerar el nivel de confianza
+        const yesNoResult = analyzeYesNo(text)
+        console.log("NLP: Respuesta sí/no analizada:", yesNoResult)
+        
+        // Si detectamos claramente un sí o un no, usarlo directamente
+        if (yesNoResult.isYes) return true
+        if (yesNoResult.isNo) return false
+        
+        // Solo como respaldo en casos extremos donde el análisis principal no detecta nada
         if (intent.intent === "affirmation") return true
         if (intent.intent === "negation") return false
-        // Analizar el texto para encontrar afirmación/negación más compleja
-        const yesNoResult = analyzeYesNo(text)
-        if (yesNoResult.confidence >= 0.5) {
-          return yesNoResult.isYes
-        }
-        // Si la confianza es baja, intentar con análisis de sentimiento
+        
+        // Incluso en casos ambiguos, intentar dar una respuesta razonable
         const sentiment = analyzeSentiment(text)
         return sentiment.sentiment === "positive"
 
@@ -915,14 +1010,31 @@ export const validateResponse = (text, questionType, options = []) => {
   try {
     switch (questionType) {
       case "yesno":
+        // Simplificar la validación: solo usamos analyzeYesNo para ver si detectó un sí o un no
         const yesNoResult = analyzeYesNo(text)
-        if (yesNoResult.confidence < 0.4) {
-          return {
-            isValid: false,
-            message: "No se pudo determinar si tu respuesta es afirmativa o negativa. Por favor, responde con sí o no.",
-          }
+        
+        // Si es un sí o un no según el análisis, es válido
+        if (yesNoResult.isYes || yesNoResult.isNo) {
+          return { isValid: true }
         }
-        return { isValid: true }
+        
+        // Si el análisis principal no detectó nada, podemos seguir considerando válidas 
+        // respuestas que contengan palabras básicas
+        const normalizedText = normalizeText(text.toLowerCase())
+        const singleWords = normalizedText.split(/\s+/)
+        
+        // Palabras básicas que siempre indican respuesta válida
+        if (singleWords.includes("si") || singleWords.includes("sí") || 
+            singleWords.includes("no") || singleWords.includes("claro") ||
+            singleWords.includes("afirmativo") || singleWords.includes("negativo")) {
+          return { isValid: true }
+        }
+        
+        // Mensaje para cuando no se detectó una respuesta clara
+        return {
+          isValid: false,
+          message: "No se pudo determinar si tu respuesta es afirmativa o negativa. Por favor, responde con sí o no.",
+        }
 
       case "rating":
         const numbers = extractNumbers(text)

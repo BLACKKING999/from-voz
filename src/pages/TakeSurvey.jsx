@@ -472,137 +472,174 @@ const TakeSurvey = () => {
 
   // Función para iniciar la escucha de la respuesta del usuario
   const startListening = async () => {
-    if (!voiceEnabled) return
+    try {
+      if (!voiceEnabled) return
 
-    // Si está hablando la pregunta, esperar a que termine
-    if (questionSpeakingRef.current) {
-      setConversationMessage("Espera a que termine de leer la pregunta...")
-      return
-    }
+      // Si está hablando la pregunta, esperar a que termine
+      if (questionSpeakingRef.current) {
+        setConversationMessage("Espera a que termine de leer la pregunta...")
+        return
+      }
+      
+      if (!audioService.isSupportedByBrowser()) {
+        setError("Tu navegador no soporta reconocimiento de voz")
+        return
+      }
 
-    if (!audioService.isSupportedByBrowser()) {
-      setError("Tu navegador no soporta reconocimiento de voz")
-      return
-    }
+      if (micPermission !== "granted") {
+        await requestMicrophonePermission()
+        return
+      }
 
-    if (micPermission !== "granted") {
-      await requestMicrophonePermission()
-      return
-    }
+      // Detener cualquier síntesis de voz en curso
+      audioService.cancelSpeech()
+      
+      // Anunciar las opciones disponibles antes de comenzar a escuchar
+      const currentQuestion = survey.questions[currentQuestionIndex]
+      
+      // Construir el texto con las opciones disponibles según el tipo de pregunta
+      let optionsText = ""
+      
+      if (currentQuestion.type === "single" && currentQuestion.options?.length > 0) {
+        optionsText = "Recuerda, tus opciones son: " + currentQuestion.options.map((option) => `${option}`).join(", ")
+      } else if (currentQuestion.type === "multiple" && currentQuestion.options?.length > 0) {
+        optionsText = "Recuerda, tus opciones son: " + currentQuestion.options.map((option) => `${option}`).join(", ")
+      } else if (currentQuestion.type === "rating") {
+        optionsText = "Recuerda, puedes responder con un número del 1 al 5."
+      } else if (currentQuestion.type === "yesno") {
+        optionsText = "Recuerda, debes responder sí o Nooo."
+      }
+      
+      // Solo anunciar si hay opciones específicas para anunciar
+      if (optionsText) {
+        await new Promise((resolve) => {
+          speakText(optionsText, resolve)
+        })
+      }
 
-    // Detener cualquier síntesis de voz en curso
-    audioService.cancelSpeech()
+      // Inicializar el reconocimiento de voz con el idioma español
+      audioService.init("es-ES")
+      
+      // Configurar los callbacks de reconocimiento de voz
+      audioService.onResult((transcript, isFinal) => {
+        setCurrentResponse(transcript)
+        setStatus(isFinal ? "Procesando..." : "Escuchando...")
+      })
+      
+      audioService.onEnd((finalTranscript) => {
+        setIsListening(false)
+        setConversationState("processing")
+        setConversationMessage("Procesando tu respuesta...")
 
-    // Inicializar el reconocimiento de voz con el idioma español
-    audioService.init("es-ES")
+        // Verificar si hay una respuesta válida
+        if (finalTranscript && finalTranscript.trim() !== "") {
+          const currentQuestion = survey.questions[currentQuestionIndex]
 
-    audioService.onResult((transcript, isFinal) => {
-      setCurrentResponse(transcript)
-      setStatus(isFinal ? "Procesando..." : "Escuchando...")
-    })
-
-    audioService.onEnd((finalTranscript) => {
-      setIsListening(false)
-      setConversationState("processing")
-      setConversationMessage("Procesando tu respuesta...")
-
-      // Verificar si hay una respuesta válida
-      if (finalTranscript && finalTranscript.trim() !== "") {
-        const currentQuestion = survey.questions[currentQuestionIndex]
-
-        // Validar la respuesta según el tipo de pregunta con mejor manejo de errores
-        try {
-          const validation = validateResponse(finalTranscript, currentQuestion.type, currentQuestion.options)
-
-          if (validation.isValid) {
-            // Procesar la respuesta según el tipo de pregunta
-            const processedResponse = processResponse(finalTranscript, currentQuestion.type, currentQuestion.options)
-
-            // Guardar respuesta procesada en el array de respuestas
-            const updatedResponses = [...responses]
-            updatedResponses[currentQuestionIndex] = {
-              raw: finalTranscript,
-              processed: processedResponse,
+          // Validar la respuesta según el tipo de pregunta con mejor manejo de errores
+          try {
+            // Añadir logs para depurar el problema de validación
+            console.log("Texto de respuesta a validar:", finalTranscript);
+            console.log("Tipo de pregunta:", currentQuestion.type);
+            
+            const validation = validateResponse(finalTranscript, currentQuestion.type, currentQuestion.options)
+            console.log("Resultado de validación:", validation);
+            
+            // Para preguntas sí/no, vamos a intentar forzar la validación a true si detectamos palabras básicas
+            if (currentQuestion.type === "yesno" && !validation.isValid) {
+              const lowerText = finalTranscript.toLowerCase().trim();
+              if (lowerText === "sí" || lowerText === "si" || lowerText === "no" || 
+                  lowerText.includes("sí") || lowerText.includes("si") || lowerText.includes("no")) {
+                console.log("Forzando validación a true para respuesta obvia sí/no");
+                validation.isValid = true;
+              }
             }
-            setResponses(updatedResponses)
 
-            // Mostrar la respuesta procesada o la original según el tipo
-            let displayResponse = finalTranscript
+            if (validation.isValid) {
+              // Procesar la respuesta según el tipo de pregunta
+              const processedResponse = processResponse(finalTranscript, currentQuestion.type, currentQuestion.options)
 
-            // Para preguntas de selección única, mostrar la opción seleccionada
-            if (currentQuestion.type === "single" && processedResponse && processedResponse.selected) {
-              displayResponse = `Selección: ${processedResponse.selected}`
+              // Guardar respuesta procesada en el array de respuestas
+              const updatedResponses = [...responses]
+              updatedResponses[currentQuestionIndex] = {
+                raw: finalTranscript,
+                processed: processedResponse,
+              }
+              setResponses(updatedResponses)
+
+              // Mostrar la respuesta procesada o la original según el tipo
+              let displayResponse = finalTranscript
+
+              // Para preguntas de selección única, mostrar la opción seleccionada
+              if (currentQuestion.type === "single" && processedResponse && processedResponse.selected) {
+                displayResponse = `Selección: ${processedResponse.selected}`
+              }
+              // Para preguntas de selección múltiple, mostrar las opciones seleccionadas
+              else if (currentQuestion.type === "multiple" && Array.isArray(processedResponse)) {
+                // Eliminar duplicados y valores vacíos
+                const uniqueSelections = [...new Set(processedResponse.map((item) => item.selected))].filter(Boolean)
+                const selections = uniqueSelections.join(", ")
+                displayResponse = `Selecciones: ${selections || "Ninguna"}`
+              }
+              // Para preguntas de sí/no, mostrar Sí o No
+              else if (currentQuestion.type === "yesno") {
+                displayResponse = processedResponse === true ? "Sí" : "No"
+              }
+              // Para valoraciones, mostrar la puntuación
+              else if (currentQuestion.type === "rating" && typeof processedResponse === "number") {
+                displayResponse = `Valoración: ${processedResponse} de 5`
+              }
+
+              setCurrentResponse(displayResponse)
+
+              // Confirmar la respuesta al usuario
+              speakText(`He registrado tu respuesta: ${displayResponse}`, null)
+            } else {
+              // Si la respuesta no es válida, informar al usuario y volver a preguntar
+              setCurrentResponse(finalTranscript + " (Respuesta no válida)")
+
+              speakText(`${validation.message} Vamos a intentarlo de nuevo.`, () => {
+                // Volver a leer la pregunta después de un breve momento
+                setTimeout(() => {
+                  speakCurrentQuestion()
+                }, 1000)
+              })
             }
-            // Para preguntas de selección múltiple, mostrar las opciones seleccionadas
-            else if (currentQuestion.type === "multiple" && Array.isArray(processedResponse)) {
-              // Eliminar duplicados y valores vacíos
-              const uniqueSelections = [...new Set(processedResponse.map((item) => item.selected))].filter(Boolean)
-              const selections = uniqueSelections.join(", ")
-              displayResponse = `Selecciones: ${selections || "Ninguna"}`
-            }
-            // Para preguntas de sí/no, mostrar Sí o No
-            else if (currentQuestion.type === "yesno") {
-              displayResponse = processedResponse === true ? "Sí" : "No"
-            }
-            // Para valoraciones, mostrar la puntuación
-            else if (currentQuestion.type === "rating" && typeof processedResponse === "number") {
-              displayResponse = `Valoración: ${processedResponse} de 5`
-            }
+          } catch (error) {
+            console.error("Error al procesar respuesta:", error)
 
-            setCurrentResponse(displayResponse)
-
-            // Confirmar la respuesta al usuario
-            speakText(`He registrado tu respuesta: ${displayResponse}`, null)
-          } else {
-            // Si la respuesta no es válida, informar al usuario y volver a preguntar
-            setCurrentResponse(finalTranscript + " (Respuesta no válida)")
-
-            speakText(`${validation.message} Vamos a intentarlo de nuevo.`, () => {
-              // Volver a leer la pregunta después de un breve momento
+            // Manejo de error mejorado
+            setCurrentResponse(finalTranscript)
+            speakText("Hubo un problema al procesar tu respuesta. Vamos a intentarlo de nuevo.", () => {
               setTimeout(() => {
                 speakCurrentQuestion()
               }, 1000)
             })
           }
-        } catch (error) {
-          console.error("Error al procesar respuesta:", error)
-
-          // Manejo de error mejorado
-          setCurrentResponse(finalTranscript)
-          speakText("Hubo un problema al procesar tu respuesta. Vamos a intentarlo de nuevo.", () => {
-            setTimeout(() => {
-              speakCurrentQuestion()
-            }, 1000)
+        } else {
+          // No se detectó ninguna respuesta - manejo mejorado
+          speakText("No pude entender tu respuesta. Por favor, inténtalo de nuevo.", () => {
+            // Volver a preguntar
+            speakCurrentQuestion()
           })
         }
-      } else {
-        // No se detectó ninguna respuesta - manejo mejorado
-        speakText("No pude entender tu respuesta. Por favor, inténtalo de nuevo.", () => {
-          // Volver a preguntar
-          speakCurrentQuestion()
-        })
-      }
-    })
+      })
 
-    audioService.onError((errorMessage) => {
-      console.error("Error en reconocimiento de voz:", errorMessage)
-      setIsListening(false)
-      setConversationState("error")
-      setConversationMessage(`Error: ${errorMessage}`)
+      audioService.onError((errorMessage) => {
+        console.error("Error en reconocimiento de voz:", errorMessage)
+        setIsListening(false)
+        setConversationState("error")
+        setConversationMessage(`Error: ${errorMessage}`)
 
-      // Intentar recuperarse del error
-      setTimeout(() => {
-        setConversationState("idle")
-        setConversationMessage("Puedes intentar hablar de nuevo o usar los botones para navegar")
-      }, 3000)
-    })
+        // Intentar recuperarse del error
+        setTimeout(() => {
+          setConversationState("idle")
+          setConversationMessage("Puedes intentar hablar de nuevo o usar los botones para navegar")
+        }, 3000)
+      })
 
-    try {
-      // Usar el método start mejorado con opciones de sensibilidad según el tipo de pregunta
-      const currentQuestion = survey.questions[currentQuestionIndex]
+      // Configurar opciones de sensibilidad según el tipo de pregunta
       let options = {}
-
-      // Ajustar sensibilidad según el tipo de pregunta
+      
       if (currentQuestion.type === "open") {
         options = { preset: "veryLow" } // Más tiempo para respuestas abiertas
       } else if (currentQuestion.type === "yesno") {
@@ -610,7 +647,8 @@ const TakeSurvey = () => {
       } else {
         options = { preset: "medium" } // Sensibilidad media para otros tipos
       }
-
+      
+      // Iniciar el reconocimiento de voz con las opciones configuradas
       const started = await audioService.start(options)
 
       if (started) {
